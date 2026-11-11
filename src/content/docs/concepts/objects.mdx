@@ -1,0 +1,126 @@
+---
+title: "Objects: records and files"
+description: The two kinds of object the gateway stores and how the catalog tracks them.
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Everything ingested through `POST /objects` is an **object**. The `objects` table is the catalog, with one row per object: id (UUIDv7), owner, source, content type, label, kind, schema, storage location, tier and a SHA-256 digest of the canonical JSON or of the file bytes.
+
+Every request needs `Authorization: Bearer <token>`. The examples use `$GATEWAY` for the base URL and `$TOKEN` for an `api` or `admin` token.
+
+## Records
+
+A record is a JSON payload. New records land in PostgreSQL and, after the table's hot window, are archived to Parquet (see [Tiers and archive](/docs/concepts/tiers-and-archive/)). Where a record goes:
+
+1. A caller can name a **registered schema** (a JSON Schema bound to a typed table). The payload is validated and written to that table; invalid payloads are rejected with 422.
+2. Without a name, a payload that closely matches an **approved** table (80% field overlap, and valid) is routed there automatically.
+3. Everything else goes to the `generic` table as `jsonb`.
+
+```sh title="Ingest a record"
+curl -s -X POST "$GATEWAY/objects" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "owner": "harbour-sensors",
+    "source": "quay-3-weather",
+    "metadata": {"station": "q3"},
+    "payload": {"wind_ms": 7.4, "temp_c": 3.1, "observed_at": "2026-11-11T10:15:00Z"}
+  }'
+```
+
+```json title="201 response"
+{
+  "object_id": "01a1ca74-676e-75f8-be61-c2358e594234",
+  "kind": "record",
+  "table": "generic",
+  "catalog": "record",
+  "digest_sha256": "d2b8ff2331e67468b2664b5032fe15129ca0cd2b07e3bc460c1637dd0c86c459"
+}
+```
+
+`owner` and `source` are required (1 to 200 characters). `label` is optional and defaults to `PUBLIC` / `UNMARKED`. Add `"schema": "weather_obs"` to validate against a registered schema and write to its table.
+
+Records are immutable once archived. A record that is already archived cannot be deleted (409).
+
+## Files
+
+Files (images, video, Parquet and so on) never pass through the gateway:
+
+<Steps>
+
+1. **Describe the file.** `POST /objects` with a `file` instead of a `payload`: its name, size in bytes (1 byte to 5 GiB, one presigned PUT) and lower-case hex SHA-256.
+
+   ```sh
+   curl -s -X POST "$GATEWAY/objects" \
+     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{
+       "owner": "survey-team", "source": "drone-17", "retention_days": 90,
+       "file": {"name": "ridge.jpg", "size": 2481320, "sha256": "9f2c...e41a"}
+     }'
+   ```
+
+   The response has `object_id`, `status: "pending"`, `expires_at`, and `upload_url`, `upload_method` (`PUT`), `upload_headers` and `upload_expires_in` (seconds; `UPLOAD_URL_TTL`, default 900).
+
+2. **Upload the bytes** to the bucket, with the headers the response lists:
+
+   ```sh
+   curl -X PUT "$UPLOAD_URL" -H "Content-Type: image/jpeg" --data-binary @ridge.jpg
+   ```
+
+3. **Commit.** The gateway checks size and SHA-256. Only then does the file become downloadable.
+
+   ```sh
+   curl -s -X POST "$GATEWAY/objects/$OBJECT_ID/commit" -H "Authorization: Bearer $TOKEN"
+   ```
+
+   ```json
+   {"object_id": "01a1...", "status": "committed", "digest_sha256": "9f2c...e41a"}
+   ```
+
+</Steps>
+
+Files have no tiering: the catalog's `tier` is `null` and they stay in the bucket as uploaded. A file can be given a lifetime, see [Retention and cleanup](/docs/concepts/retention-and-cleanup/). The presigned URL is built from `AWS_ENDPOINT_URL_S3`, so the client must be able to reach that address.
+
+## Reading
+
+`GET /objects/{id}` returns the catalog row and the payload (or a download URL for a committed file).
+
+```json title="GET /objects/{id} for a record (abridged)"
+{
+  "object_id": "01a1ca74-676e-75f8-be61-c2358e594234",
+  "created_at": "2026-11-11T11:53:24+00:00",
+  "owner": "harbour-sensors", "source": "quay-3-weather",
+  "content_type": "application/json",
+  "label": {"policy": "PUBLIC", "classification": "UNMARKED"},
+  "kind": "record", "status": "committed", "tier": "hot",
+  "schema": null, "metadata": {"station": "q3"}, "expires_at": null,
+  "payload": {"wind_ms": 7.4, "temp_c": 3.1, "observed_at": "2026-11-11T10:15:00Z"}
+}
+```
+
+Once the record is archived, `tier` is `archived`, the payload is read from the verified Parquet file, and an `archive` object names the file and its SHA-256.
+
+`GET /objects` lists catalog rows without payloads. Filters:
+
+- `source`, `owner`, `kind` (`record` or `file`), `schema`, `table`
+- `created_from` (inclusive) and `created_to` (exclusive)
+- `after` and `limit`: keyset pagination; pass the response's `next` as `after`
+- `metadata.<key>[.<op>]=<value>`: text comparison against the object's `metadata`. `op` is one of `eq ne in null prefix contains`, default `eq`. Unknown keys or operators give 422.
+
+```sh
+curl -s -G "$GATEWAY/objects" -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "source=drone-17" --data-urlencode "kind=file" \
+  --data-urlencode "metadata.filename.prefix=ridge" --data-urlencode "limit=50"
+```
+
+The response is `{"items": [...], "next": "..."}`; `next` is `null` on the last page.
+
+Metadata filtering only sees the live catalog row, not the payload, so it works the same whether the object is hot or archived.
+
+## Deleting
+
+`DELETE /objects/{id}` (admin token) removes one object now: a file (bucket object and catalog row) or a record still in PostgreSQL. Bulk-table records have no catalog row and cannot be deleted individually.
+
+<Aside type="note">
+A conflict (409) means the record has already been archived. Deletion is recorded in the [audit log](/docs/concepts/audit-log/) as `object.delete`.
+</Aside>

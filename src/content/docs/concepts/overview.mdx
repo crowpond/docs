@@ -1,0 +1,80 @@
+---
+title: What is crowpond?
+description: The problem crowpond solves, the idea behind it and how data moves through it.
+---
+
+import { Aside, Steps, Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import Architecture from '../../../components/diagrams/Architecture.astro';
+import Lifecycle from '../../../components/diagrams/Lifecycle.astro';
+import ReadPath from '../../../components/diagrams/ReadPath.astro';
+
+crowpond is an open source **datalake**: one place where producers put data they have, and consumers read it back, without either side knowing how it is stored. It has two parts, the **gateway** (the API and the jobs that keep the storage tidy) and the **admin console** (a web UI that sits on top of the gateway's API).
+
+## The problem
+
+Data arrives in different shapes and at different speeds. A sensor feed sends thousands of small records a minute; a camera sends large files; an operator pastes in a JSON document nobody has described yet. Teams usually answer with a database per source, a bucket full of loose files, and a pile of scripts. Three things then go wrong.
+
+- **Hot and cold data live in different systems.** Yesterday's rows are in a database that is expensive to keep growing, last year's are in files only one script understands, and every reader must know where the line is.
+- **Nobody can say what a piece of data is.** Where it came from, who owns it, how it may be shared and whether it was altered are in people's heads or in file names.
+- **The schema of free-form data is a negotiation.** Letting anything in makes the data unusable; demanding a schema up front makes producers give up.
+
+## The idea
+
+Put one REST API in front of storage and make three decisions for the caller.
+
+1. **Every object is labelled and bound.** A caller says what the data is (owner, source, classification, metadata). The gateway keeps a [STANAG 4774 label](/docs/concepts/labels-and-binding/) with it, bound as 4778 describes, plus a SHA-256 digest, so the label and the content cannot drift apart unnoticed.
+2. **Recent data lives in PostgreSQL, past days in Parquet.** PostgreSQL gives fast writes, transactions and indexes for the days people are working with. A job moves whole past days into [Parquet files](/docs/concepts/tiers-and-archive/) in an S3-compatible bucket, which are cheap, open and readable by other tools. The API reads both as one table.
+3. **Structure is added by a person, not by accident.** Unknown JSON lands in a `generic` table. The gateway proposes typed tables for shapes it sees often, and an admin approves them. [Tables](/docs/concepts/tables/) are never created from payload keys on their own.
+
+<Architecture />
+
+## Who it is for
+
+People who need to collect messy, continuous or file-shaped data from several sources and keep it queryable and traceable for a long time, on infrastructure they control: a small team running its own stack, a research group, an organisation that must be able to show where each piece of data came from. The first use case it was tested against is a live stream of vessel position reports (AIS); the gateway's API stays generic and knows nothing about vessels.
+
+## How data flows
+
+<Lifecycle />
+
+A **record** (a JSON payload) is posted to the gateway. It is validated against a schema when one applies, labelled, and written to a table in PostgreSQL together with a row in the catalog. After the table's hot window (7 days by default) the archive job rewrites each whole past day as hourly Parquet files, adds a detached binding next to each, and, in one transaction, marks the catalog rows archived and drops the day's partition. Archived records are immutable.
+
+A **file** (an image, a video, a Parquet file you made yourself) never passes through the gateway. The gateway returns a presigned upload URL; the client uploads straight to the bucket and then commits, which makes the gateway check size and digest. Files stay in the bucket as uploaded and can be given a lifetime; the cleanup job deletes them when it ends.
+
+**High-rate streams** use a bulk table: one owner, source and label for the whole table, no catalog row per record, up to 1,000 records per call.
+
+## How reads span both tiers
+
+<ReadPath />
+
+`GET /tables/{table}/rows` takes filters, a time range and a cursor. The gateway reads the matching hot rows from PostgreSQL, finds the archive files that overlap the range, downloads the ones it does not have cached, checks each one's size and SHA-256 against the catalog, queries them with DuckDB and merges everything in `(created_at, object_id)` order. The caller sees one table; a digest mismatch is an error rather than silently wrong data.
+
+## Labels and binding in one paragraph
+
+Each object carries an originator confidentiality label (only `PUBLIC` / `UNMARKED` is accepted so far). In the catalog the label sits in columns on the object's row. In the archive the label is on the **file**, not on each record, in a detached binding: a `.bdo.xml` file next to each Parquet file that references it by URI and carries the label and a local-use digest. Responses embed the label in the body. The label is metadata; nothing yet enforces access by label. Details: [Labels and binding](/docs/concepts/labels-and-binding/).
+
+## Where the admin console fits
+
+The console is an ordinary client. It uses one admin token and the gateway's HTTP API, nothing else; it has its own small database for user accounts and its own audit trail. It makes the manual steps comfortable: reviewing schema proposals, registering schemas, watching and running the archive, issuing API tokens for each producer, reading the audit log. Anything it does, `curl` can do.
+
+<Aside type="tip">
+The console shows every call it makes to the gateway in a log bar at the bottom of the page, with status, timing and trace ids. It is a good way to learn the API.
+</Aside>
+
+## What is deliberately out of scope
+
+- **Not a query engine or warehouse.** The API filters and pages through rows. Joins, aggregates and ad hoc SQL belong in tools you point at the Parquet files or at your own copy.
+- **Not a message broker.** Producers push, consumers pull. There is no subscription or fan-out.
+- **No automatic schemas.** Tables are created by an admin, never by payload keys.
+- **No updates, and no deleting of archived records.** Deleting an archived record would need a Parquet rewrite and is not built. Files can be deleted, and expire.
+- **No access control by label yet.** Labels travel with the data; tokens have two roles (`api` and `admin`), and that is all that is enforced.
+- **No signatures yet.** Bindings carry a digest but no `ds:Signature`.
+- **No database or bucket included.** You provide PostgreSQL and the S3-compatible bucket, and their backups.
+
+## Where to go next
+
+<CardGrid>
+  <LinkCard title="Objects" description="Records versus files, with request examples." href="/docs/concepts/objects/" />
+  <LinkCard title="Tables" description="Typed tables, proposals and bulk tables." href="/docs/concepts/tables/" />
+  <LinkCard title="Tiers and the archive" description="How the archive job works and how reads verify it." href="/docs/concepts/tiers-and-archive/" />
+  <LinkCard title="Install" description="Run the images with Docker, Fly.io or Portainer." href="/docs/installation/" />
+</CardGrid>

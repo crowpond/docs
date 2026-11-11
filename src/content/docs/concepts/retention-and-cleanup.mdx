@@ -3,6 +3,8 @@ title: Retention and cleanup
 description: Giving files a lifetime and deleting them when it ends.
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 A file can be given a lifetime when it is created: add `retention_days` (1 to 36500) to the `POST /objects` body. The catalog row gets `expires_at` (now plus that many days), returned by `POST /objects`, `GET /objects` and `GET /objects/{id}`. Without `retention_days` the file is kept forever.
 
 Retention applies to **files only**, because a record that has been archived to Parquet cannot be removed.
@@ -14,3 +16,23 @@ If `AUDIT_RETENTION_DAYS` is set, the same job also deletes old audit rows, see 
 To delete a single object immediately, use `DELETE /objects/{id}` (admin token).
 
 See [Cleanup job](/docs/gateway/cleanup-job/) for how to run it.
+
+## Example
+
+```sh title="Create a file that expires after 30 days"
+curl -s -X POST "$GATEWAY/objects" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "owner": "survey-team", "source": "drone-17", "retention_days": 30,
+    "file": {"name": "ridge.jpg", "size": 2481320, "sha256": "9f2c...e41a"}
+  }'
+```
+
+The response carries `"expires_at": "2026-12-11T..."`. After that moment the file is still downloadable until the cleanup job runs; the job is what enforces the lifetime.
+
+```json title="POST /cleanup/run"
+{"status": "ok", "expired": 3, "deleted": 3, "audit_deleted": 0, "errors": [], "more": false}
+```
+
+<Aside type="caution">
+Do not use a bucket lifecycle rule instead. It would remove objects behind the catalog's back, and for `archive/` it would break reads. Retention through the cleanup job keeps the catalog and the bucket consistent.
+</Aside>

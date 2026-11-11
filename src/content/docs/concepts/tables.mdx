@@ -1,0 +1,147 @@
+---
+title: Tables, proposals and bulk tables
+description: Typed tables, how they are created, and bulk tables for high-rate streams.
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Typed tables
+
+A typed table has one column per top-level property of its JSON Schema, plus an `extra jsonb` column for fields without a column. The `generic` table holds everything that matches nothing else.
+
+Tables are created only by an admin, never automatically and never from unvalidated payload keys:
+
+- by **registering a schema** (`POST /schemas`), or
+- by **approving a proposal**.
+
+`POST /proposals/scan` clusters similar payloads in `generic` and proposes a table. Approving a proposal creates the table, moves the fitting rows over and turns on routing for that shape. Rejecting it discards the proposal. Schema changes add a new version and can only add columns.
+
+All typed tables are range-partitioned by `created_at`, one partition per UTC day, created on demand.
+
+### Registering a schema
+
+`POST /schemas` (admin) takes a name, the table it creates and a JSON Schema 2020-12 object. Names are SQL-safe identifiers (letters, digits, underscore); top-level `properties` become columns.
+
+```sh title="Register a schema"
+curl -s -X POST "$GATEWAY/schemas" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "name": "weather_obs",
+    "table_name": "weather_obs",
+    "json_schema": {
+      "type": "object",
+      "properties": {
+        "wind_ms":     {"type": "number"},
+        "temp_c":      {"type": "number"},
+        "observed_at": {"type": "string", "format": "date-time"}
+      },
+      "required": ["wind_ms"]
+    }
+  }'
+```
+
+The response lists the version and the columns that were created, each with the field it came from and its PostgreSQL type, and whether the table takes part in automatic routing (`auto_match`):
+
+```json title="201 response (shape)"
+{
+  "name": "weather_obs", "version": 1, "table_name": "weather_obs",
+  "columns": [{"field": "wind_ms", "column": "wind_ms", "pg_type": "double precision"}],
+  "auto_match": true, "catalog": "record"
+}
+```
+
+Registering the same name again adds a new version that can only add columns. Records written under an older version read the missing columns as `NULL`.
+
+### Proposals
+
+When many records land in `generic` with similar keys, an admin runs the scan and reviews what the gateway found:
+
+<Steps>
+
+1. `POST /proposals/scan` returns `{"created": [3], "updated": [], "skipped": 0}`: ids of new and refreshed proposals.
+2. `GET /proposals/3` shows `cluster_fields`, the proposed `json_schema`, the fields it `excluded` and why, `row_count` and a few `samples`.
+3. `POST /proposals/3/approve` creates the table, moves the fitting rows over (`moved_rows` in the result) and turns on routing for that shape. `POST /proposals/3/reject` discards it. The approve body can adjust the name or schema before it is created.
+
+</Steps>
+
+The admin console does the same on its Proposals page.
+
+## Bulk tables
+
+Bulk tables are for high-rate streams (for example vessel positions). Register a schema with `catalog: "table"` to get one. Owner, source and label are fixed for the whole table, and no catalog row is written per record. `POST /tables/{table}/records` ingests up to 1,000 records per call, all or nothing.
+
+Bulk records have no per-record digest, metadata or label, and cannot be deleted individually. They are read with `GET /tables/{table}/rows`, not `/objects`.
+
+```sh title="Register a bulk table"
+curl -s -X POST "$GATEWAY/schemas" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "name": "position", "table_name": "position", "catalog": "table",
+    "owner": "feed-gateway", "source": "ais-feed",
+    "json_schema": {"type": "object", "properties": {
+      "mmsi": {"type": "integer"}, "lat": {"type": "number"}, "lon": {"type": "number"},
+      "sog": {"type": "number"}}}
+  }'
+```
+
+```sh title="Send a batch"
+curl -s -X POST "$GATEWAY/tables/position/records" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"records": [
+    {"mmsi": 257123456, "lat": 63.43, "lon": 10.39, "sog": 11.2},
+    {"mmsi": 257654321, "lat": 63.44, "lon": 10.41, "sog": 0.1}
+  ]}'
+```
+
+```json title="201 response"
+{"table": "position", "count": 2, "object_ids": ["01a1...", "01a1..."]}
+```
+
+The batch is all or nothing: one invalid record rejects the whole call with 422 and nothing is written.
+
+## Reading rows
+
+`GET /tables/{table}/rows` reads a typed table across both tiers (see [Tiers and archive](/docs/concepts/tiers-and-archive/)), ordered by `(created_at, object_id)`.
+
+| Parameter | Meaning |
+| --- | --- |
+| `<column>=<value>` | equals |
+| `<column>.<op>=<value>` | `op`: `eq ne gt gte lt lte in null prefix contains` |
+| `extra.<key>[.<op>]=<value>` | a field without a column (text comparison) |
+| `_source`, `_owner` | catalog filters |
+| `_id=<object_id>` | one row |
+| `_created_from`, `_created_to` | `created_at` range, from inclusive, to exclusive |
+| `_select=a,b` | only these columns |
+| `_order=asc\|desc`, `_after=<cursor>`, `_limit=<1..1000>` | ordering and keyset pagination; pass the response's `next` as `_after` |
+
+Operators are checked against the column type. Bad values, unknown columns and unknown parameters give 422, so a typo never returns everything. Timestamps without an offset are UTC. `contains` is case-insensitive, and `%` and `_` are literal.
+
+Each item has `object_id`, `created_at`, `owner`, `source`, `label`, `digest_sha256`, `schema_version`, `data` (the columns) and `extra`.
+
+```sh title="Read a table"
+curl -s -G "$GATEWAY/tables/position/rows" -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "mmsi=257123456" \
+  --data-urlencode "sog.gte=5" \
+  --data-urlencode "_created_from=2026-11-10T00:00:00Z" \
+  --data-urlencode "_created_to=2026-11-11T00:00:00Z" \
+  --data-urlencode "_select=lat,lon,sog" --data-urlencode "_limit=100"
+```
+
+```json title="200 response"
+{
+  "table": "position",
+  "items": [{
+    "object_id": "01a1...", "created_at": "2026-11-10T08:00:12+00:00",
+    "owner": "feed-gateway", "source": "ais-feed",
+    "label": {"policy": "PUBLIC", "classification": "UNMARKED"},
+    "digest_sha256": null, "schema_version": 1,
+    "data": {"lat": 63.43, "lon": 10.39, "sog": 11.2}, "extra": {}
+  }],
+  "next": "eyJ..."
+}
+```
+
+Pass `next` back as `_after` for the following page. A `422` names the offending parameter, for example `{"detail": "unknown column: sogg"}` (the exact text varies).
+
+Things to know:
+
+- Only `created_at` is indexed. Give a time range on big tables.
+- Files written under an older schema version read the missing columns as `NULL`.
+- At most 31 archive files are opened per request, so a page can be short and still carry `next`. Follow `next` until it is `null`.

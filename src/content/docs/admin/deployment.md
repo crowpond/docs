@@ -3,6 +3,10 @@ title: Admin console deployment
 description: Running the admin image, with manual migrations, on Docker or Fly.io.
 ---
 
+:::tip[Step-by-step guides]
+This page is the reference for the image. For complete walk-throughs with a Compose file, `fly.toml` examples and a Portainer stack, see [Installation](/docs/installation/).
+:::
+
 The image is published to `ghcr.io/crowpond/admin` (amd64 and arm64) by the repository's CI: `latest` follows `main`, and version tags (`v1.2.3`) give `1.2.3` and `1.2`. To build it yourself, run `docker build -t crowpond-admin .`.
 
 It is FrankenPHP serving `public/` on port 8080, built in two stages: a Node stage compiles the Vite, Tailwind and Flux assets into `public/build`, and the PHP stage copies that and the Composer vendor directory in. `GET /up` is the health check, and the image declares a `HEALTHCHECK` for it.

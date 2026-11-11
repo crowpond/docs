@@ -15,6 +15,8 @@ Nothing in the gateway or the console runs on a timer. Schedule these yourself (
 
 The endpoints need an admin token. Check progress with `GET /archive` or the console's Archive page.
 
+The installation guides show how to schedule them on [Docker](/docs/installation/docker/#scheduling-the-jobs), [Fly.io](/docs/installation/fly/#scheduled-jobs) and [Portainer](/docs/installation/portainer/#one-off-commands).
+
 ## Health checks
 
 - Gateway: `GET /healthz`.
@@ -30,9 +32,11 @@ The gateway needs at least 512 MB of memory; the archive job takes about 180 MB 
 
 ## Things to remember
 
-- Back up PostgreSQL yourself; crowpond does not.
+- Back up PostgreSQL and the bucket yourself; crowpond does not. See [Upgrades and backups](/docs/installation/upgrades-and-backups/).
 - Do not set a bucket lifecycle rule on `archive/`: it would delete archive files behind the catalog's back.
 - Revoked or lost tokens cannot be recovered; issue a new one.
 - A cache miss when reading the archive downloads a whole hourly file (a few MB). The cache is per machine and empty after a restart.
 - Give a time range when reading large tables: only `created_at` is indexed.
 - Grant the gateway's database role no `UPDATE` on `audit_log` to enforce its append-only behaviour in the database.
+
+See also [Limits and security notes](/docs/gateway/limits/).

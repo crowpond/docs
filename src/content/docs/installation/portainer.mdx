@@ -1,0 +1,151 @@
+---
+title: Portainer
+description: A stack for Portainer's editor, with variables in its environment section.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+[Portainer](https://www.portainer.io) deploys Compose files as *stacks*. The stack below is the same as in the [Docker guide](/docs/installation/docker/), but without a `name:` (the stack name does that), with the ports published on all interfaces so a reverse proxy on the same host (or Portainer's own proxy network) can reach them, and every setting taken from the stack's environment variables. It assumes the published images are pullable.
+
+## The stack
+
+<Steps>
+
+1. In Portainer, choose **Stacks, Add stack**, name it `crowpond` and pick **Web editor**.
+
+2. Paste this YAML:
+
+   ```yaml title="Stack: crowpond"
+   services:
+     postgres:
+       image: postgres:16
+       restart: unless-stopped
+       environment:
+         POSTGRES_USER: crowpond
+         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+         POSTGRES_DB: gateway
+       volumes:
+         - pgdata:/var/lib/postgresql/data
+       healthcheck:
+         test: ["CMD-SHELL", "pg_isready -U crowpond -d gateway"]
+         interval: 5s
+         timeout: 5s
+         retries: 10
+
+     gateway:
+       image: ghcr.io/crowpond/gateway:latest
+       restart: unless-stopped
+       depends_on:
+         postgres: { condition: service_healthy }
+       environment:
+         DATABASE_URL: postgres://crowpond:${POSTGRES_PASSWORD}@postgres:5432/gateway
+         BUCKET_NAME: ${S3_BUCKET}
+         AWS_ENDPOINT_URL_S3: ${S3_ENDPOINT}
+         AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+         AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+         AWS_REGION: ${S3_REGION}
+         HOT_DAYS: "7"
+       ports:
+         - "8080:8080"
+
+     admin:
+       image: ghcr.io/crowpond/admin:latest
+       restart: unless-stopped
+       depends_on:
+         postgres: { condition: service_healthy }
+       environment:
+         APP_NAME: crowpond
+         APP_ENV: production
+         APP_DEBUG: "false"
+         APP_KEY: ${APP_KEY}
+         APP_URL: ${ADMIN_URL}
+         LOG_CHANNEL: stderr
+         LOG_STDERR_FORMATTER: Monolog\Formatter\JsonFormatter
+         DB_CONNECTION: pgsql
+         DB_URL: postgres://crowpond_admin:${ADMIN_DB_PASSWORD}@postgres:5432/crowpond_admin
+         SESSION_DRIVER: cookie
+         SESSION_ENCRYPT: "true"
+         SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE}
+         SESSION_SAME_SITE: strict
+         CACHE_STORE: file
+         QUEUE_CONNECTION: sync
+         MAIL_MAILER: log
+         GATEWAY_URL: http://gateway:8080
+         GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN}
+       ports:
+         - "8081:8080"
+
+   volumes:
+     pgdata:
+   ```
+
+3. Under **Environment variables**, switch to **Advanced mode** and paste the values (or add them one by one with **Add an environment variable**). Portainer substitutes them for the `${...}` references:
+
+   ```ini title="Environment variables"
+   POSTGRES_PASSWORD=change-me
+   ADMIN_DB_PASSWORD=change-me-too
+   S3_BUCKET=crowpond
+   S3_ENDPOINT=https://s3.example.com
+   S3_REGION=auto
+   S3_ACCESS_KEY=...
+   S3_SECRET_KEY=...
+   APP_KEY=
+   ADMIN_URL=https://manage.example.com
+   SESSION_SECURE_COOKIE=true
+   GATEWAY_ADMIN_TOKEN=
+   ```
+
+   Leave `APP_KEY` and `GATEWAY_ADMIN_TOKEN` empty for now: you create them below. Variables entered here are stored by Portainer and visible to its administrators, so treat them as secrets.
+
+4. Click **Deploy the stack**. The gateway starts and runs its migrations; the console will restart until its key and database exist.
+
+</Steps>
+
+<Aside type="caution">
+`SESSION_SECURE_COOKIE=true` needs HTTPS. For a first look over plain `http://host:8081` set it to `false`, and change it back when the proxy is in place.
+</Aside>
+
+## One-off commands
+
+Portainer runs commands in a container through its console: **Containers**, click the container, then the **Console** (`>_`) icon. Choose the command `/bin/sh` and the user **www-data**, then **Connect**.
+
+<Steps>
+
+1. **Create the console's database.** In the `postgres` container's console (user `postgres` or `root` is fine):
+
+   ```sh
+   psql -U crowpond -d gateway \
+     -c "CREATE USER crowpond_admin WITH PASSWORD 'change-me-too'" \
+     -c "CREATE DATABASE crowpond_admin OWNER crowpond_admin"
+   ```
+
+2. **Create the first admin token** in the `gateway` container's console, as `www-data`:
+
+   ```sh
+   php bin/create-token console admin
+   ```
+
+   Copy the secret (the last line of output; it is shown once).
+
+3. **Generate the console's key** in the `admin` container's console:
+
+   ```sh
+   php artisan key:generate --show
+   ```
+
+4. Back in **Stacks, crowpond, Editor**, fill in `APP_KEY` and `GATEWAY_ADMIN_TOKEN` and click **Update the stack**.
+
+5. In the `admin` container's console, as `www-data`:
+
+   ```sh
+   php artisan migrate --force
+   php artisan admin:create-user
+   ```
+
+</Steps>
+
+Schedule the jobs outside Portainer, from the host's cron, with `docker exec -u www-data <gateway container> php bin/archive` and `php bin/cleanup` (find the container name under **Containers**). See [Operations](/docs/operations/).
+
+## Updating
+
+To move to a new image: open the stack's **Editor**, optionally change the tags (for example `ghcr.io/crowpond/gateway:1.3`), switch on **Re-pull image and redeploy** and click **Update the stack**. The gateway migrates itself on start; after a console update, run `php artisan migrate --force` again in its console. See [Upgrades and backups](/docs/installation/upgrades-and-backups/).

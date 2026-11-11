@@ -3,23 +3,51 @@ title: crowpond
 description: An open source datalake with one REST API in front of PostgreSQL and a Parquet archive.
 template: splash
 hero:
-  tagline: Generic ingest and retrieval of labelled, bound data objects. Live data in PostgreSQL, past data archived as Parquet, one REST API in front.
+  title: A lake you can read to the bottom.
+  tagline: Live data in PostgreSQL. Past days in Parquet. One API in front of both. crowpond is an open source datalake for labelled, bound data objects.
+  image:
+    file: ../../assets/hero-dusk.svg
+    alt: A crow on a rock in still water at dusk, with mountains reflected below.
   actions:
-    - text: Getting started
-      link: getting-started/
+    - text: What is crowpond?
+      link: /docs/concepts/overview/
       icon: right-arrow
-    - text: Concepts
-      link: concepts/objects/
+    - text: Install it
+      link: /docs/installation/
+      variant: secondary
+      icon: rocket
+    - text: API reference
+      link: /docs/api-reference/
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, LinkCard, Badge } from '@astrojs/starlight/components';
+import Architecture from '../../components/diagrams/Architecture.astro';
 
-<CardGrid>
+<CardGrid stagger>
   <Card title="Gateway" icon="seti:json">
-    The product's core: a PHP API for ingesting and reading JSON records, files and high-rate streams, with an archive job and a retention job.
+    A PHP API for ingesting and reading JSON records, files and high-rate streams. It routes records to typed tables, archives old days to Parquet and serves reads across both tiers. <Badge text="ghcr.io/crowpond/gateway" variant="note" />
   </Card>
   <Card title="Admin console" icon="setting">
-    A web console that uses only the gateway's HTTP API: approve schema proposals, browse tables, run the archive, issue API tokens.
+    A web console that uses only the gateway's HTTP API: approve schema proposals, browse tables, run the archive, issue API tokens and read the audit trail. <Badge text="ghcr.io/crowpond/admin" variant="note" />
   </Card>
+  <Card title="Labelled by design" icon="approve-check">
+    Every object carries a STANAG 4774 confidentiality label, bound to the data per STANAG 4778. Archive files get a detached binding with a digest.
+  </Card>
+  <Card title="Open formats" icon="open-book">
+    JSON Schema for payloads, Parquet for the archive, SHA-256 digests, OpenAPI 3.1 for the API, NDJSON logs with W3C trace context.
+  </Card>
+</CardGrid>
+
+## How the pieces fit
+
+<Architecture />
+
+## Where next
+
+<CardGrid>
+  <LinkCard title="Concepts" description="The problem, the idea and how data flows from producer to archive." href="/docs/concepts/overview/" />
+  <LinkCard title="Installation" description="Docker Compose, Fly.io or a Portainer stack, with the published images." href="/docs/installation/" />
+  <LinkCard title="Gateway API" description="Endpoints, roles, pagination and errors." href="/docs/gateway/api/" />
+  <LinkCard title="Operations" description="Scheduled jobs, health checks, logs and backups." href="/docs/operations/" />
 </CardGrid>

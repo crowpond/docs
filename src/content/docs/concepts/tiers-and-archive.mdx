@@ -3,16 +3,30 @@ title: Tiers and the archive
 description: How records move from PostgreSQL to Parquet files and how reads span both.
 ---
 
+import { Aside, Steps, FileTree } from '@astrojs/starlight/components';
+import ReadPath from '../../../components/diagrams/ReadPath.astro';
+
 Records live in two tiers. New records land in PostgreSQL (`hot`). A daily **archive job** moves whole past days to Parquet files in the bucket (`archived`). Reads see both tiers as one table. This applies to records only; files are never tiered.
 
 ## The archive job
 
-The job takes every partition older than the table's hot window and, per label and UTC hour, writes:
+The job takes every partition older than the table's hot window and, per label and UTC hour, writes two objects. The layout is Hive-style, so DuckDB, Spark and other tools can read it directly:
 
-```
-archive/table=<t>/label=<policy>-<class>/date=<YYYY-MM-DD>/hour=<hh>/part-0.parquet
-archive/table=<t>/label=<policy>-<class>/date=<YYYY-MM-DD>/hour=<hh>/part-0.parquet.bdo.xml
-```
+<FileTree>
+
+- archive/
+  - table=weather_obs/
+    - label=PUBLIC-UNMARKED/
+      - date=2026-11-03/
+        - hour=00/
+          - part-0.parquet
+          - part-0.parquet.bdo.xml
+        - hour=01/
+          - part-0.parquet
+          - part-0.parquet.bdo.xml
+        - ...
+
+</FileTree>
 
 The hot window is `HOT_DAYS` full past days besides today (default 7), and can be overridden per table with `POST /tables/{table}/archive-policy` (admin).
 
@@ -20,15 +34,31 @@ Parquet is zstd-compressed and sorted by `(created_at, object_id)`. Catalog fiel
 
 Each partition is committed atomically. After every file is uploaded and its size checked, one transaction re-counts the partition, registers the files, marks catalog rows archived, advances the table's watermark and drops the partition. Any failure leaves the partition untouched and deletes the uploads. Rows arriving mid-export abort that day, which is retried on the next run. Two runs cannot overlap.
 
+Every sibling `.bdo.xml` is the file's [detached binding](/docs/concepts/labels-and-binding/).
+
+### Running it
+
 Run it with:
 
 - `php bin/archive` (needs `ffi` enabled and `DUCKDB_LIB`),
 - `POST /archive/run[?table=]` with an admin token, or
 - the admin console's Archive page.
 
-It needs a scheduler: cron, a scheduled container, or any caller of the endpoint. `GET /archive` shows status.
+It needs a scheduler: cron, a scheduled container, or any caller of the endpoint. `GET /archive` shows status. The result of a run lists what was archived and what failed:
+
+```json title="POST /archive/run"
+{
+  "status": "ok", "run_id": 12,
+  "archived": [{"table": "weather_obs", "day": "2026-11-03", "files": 24, "rows": 86400}],
+  "errors": []
+}
+```
+
+If another run holds the job lock the result is `{"status": "skipped", "reason": "..."}`. A day that fails stays in PostgreSQL and is retried on the next run. Days go in order, so a failure stops that table for the run; other tables carry on. `errors` names the table, the day and the error.
 
 ## Reading archived data
+
+<ReadPath />
 
 An archive file is downloaded, checked against its registered size and SHA-256, then queried with DuckDB. A digest mismatch gives 500 and no data; a missing file gives 502. Verified files are cached on local disk by hash (`ARCHIVE_CACHE_MB`, default 256, `0` turns it off), evicted least-recently-used and re-hashed on every use. The cache is per machine and starts empty after a restart. Files whose hour lies outside the requested range are never opened.
 

@@ -1,0 +1,211 @@
+---
+title: Fly.io
+description: Running the published images as two Fly apps, with fly.toml examples.
+---
+
+import { Steps, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide runs the published images on [Fly.io](https://fly.io) without building anything: `fly.toml` points at `ghcr.io/crowpond/...` and `fly deploy` pulls it. It assumes the images are public. You end up with two Fly apps (gateway and admin), a PostgreSQL you chose, and a bucket.
+
+<Aside type="note" title="fly.toml is yours">
+A `fly.toml` is specific to your instance (app name, region, hostnames), so keep it in your own infrastructure repository, not in crowpond's. The image does not need one at build time because you are not building.
+</Aside>
+
+## PostgreSQL and the bucket
+
+<Tabs>
+  <TabItem label="Postgres on a Fly machine">
+    The simplest self-managed option: the official `postgres:16` image on one machine with a volume, reachable only on Fly's private network. Backups are then yours (see [Upgrades and backups](/docs/installation/upgrades-and-backups/)).
+
+    ```toml title="postgres/fly.toml"
+    app = 'your-postgres'
+    primary_region = 'arn'
+
+    [build]
+      image = 'postgres:16'
+
+    [env]
+      PGDATA = '/var/lib/postgresql/data/pgdata'
+
+    [mounts]
+      source = 'pgdata'
+      destination = '/var/lib/postgresql/data'
+
+    [[vm]]
+      size = 'shared-cpu-1x'
+      memory = '512mb'
+    ```
+
+    ```sh
+    fly apps create your-postgres
+    fly volumes create pgdata --size 3 --region arn -a your-postgres
+    fly secrets set POSTGRES_PASSWORD=... -a your-postgres
+    fly deploy -c postgres/fly.toml -a your-postgres
+    ```
+
+    There is no `[http_service]`, so nothing is exposed. Other apps in your organisation reach it at `your-postgres.internal:5432`.
+  </TabItem>
+  <TabItem label="Another provider">
+    Any PostgreSQL 16 the apps can reach works: Fly's managed offering, or an external one. Put its connection string in `DATABASE_URL` (gateway) and `DB_URL` (console). If it is reached over the internet, add `?sslmode=require` to the URL; the gateway understands the `sslmode`, `connect_timeout` and `application_name` query parameters.
+  </TabItem>
+</Tabs>
+
+Create the two databases as in the [first-run checklist](/docs/installation/#first-run-checklist): a database for the gateway and `crowpond_admin` with its own user for the console. You can run the `CREATE` statements with `fly ssh console -a your-postgres -C "psql -U postgres"` if you used the machine above (the superuser is `postgres` unless you set `POSTGRES_USER`).
+
+For the bucket, `fly storage create` creates a Tigris bucket and sets `BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` as secrets on the app you give it. Any other S3-compatible bucket works if you set those variables yourself.
+
+## The gateway
+
+```toml title="gateway/fly.toml" {5,6,26}
+app = 'your-gateway'
+primary_region = 'arn'
+
+[build]
+  image = 'ghcr.io/crowpond/gateway:latest'   # pin a version tag such as :1.2 once you have one
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'    # the gateway only needs to run while it is called
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = '10s'
+    interval = '30s'
+    method = 'GET'
+    path = '/healthz'
+    timeout = '5s'
+
+# No [env]: DATABASE_URL and the bucket settings are secrets.
+
+# 512 MB, not 256: the archive job needs about 180 MB on top of the app.
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+```
+
+<Steps>
+
+1. Create the app and the bucket (this sets the bucket secrets on it):
+
+   ```sh
+   fly apps create your-gateway
+   fly storage create -a your-gateway
+   ```
+
+2. Set the database URL. The `.internal` name works when PostgreSQL is another Fly app in the same organisation:
+
+   ```sh
+   fly secrets set -a your-gateway \
+     DATABASE_URL='postgres://gateway:PASSWORD@your-postgres.internal:5432/gateway'
+   ```
+
+3. Deploy from the published image. `--image` overrides whatever the `fly.toml` says, which is handy for upgrades:
+
+   ```sh
+   fly deploy -c gateway/fly.toml --image ghcr.io/crowpond/gateway:latest
+   ```
+
+   The container starts as root (Fly does that regardless of `USER`), drops to `www-data` itself and runs its migrations before serving.
+
+4. Add your hostname, and point DNS as `fly certs` tells you:
+
+   ```sh
+   fly certs add api.example.com -a your-gateway
+   ```
+
+5. Create the first admin token:
+
+   ```sh
+   fly ssh console -a your-gateway --user www-data -C "php bin/create-token console admin"
+   ```
+
+</Steps>
+
+### Scheduled jobs
+
+Create one scheduled machine per job from the same image. A machine created with `--schedule` starts, runs the command, exits and stops, so the web machine can stay stopped between requests. The app's secrets are available to it.
+
+```sh
+fly machine run ghcr.io/crowpond/gateway:latest php bin/archive \
+  -a your-gateway --region arn --schedule daily --vm-memory 512
+fly machine run ghcr.io/crowpond/gateway:latest php bin/cleanup \
+  -a your-gateway --region arn --schedule daily
+```
+
+Scheduled machines do not follow `fly deploy`. After an upgrade, update them to the new image with `fly machine update <id> --image ...`, or destroy and recreate them. The cleanup job is only needed if you use file retention or `AUDIT_RETENTION_DAYS`.
+
+## The admin console
+
+```toml title="admin/fly.toml"
+app = 'your-admin'
+primary_region = 'arn'
+
+[build]
+  image = 'ghcr.io/crowpond/admin:latest'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = '10s'
+    interval = '30s'
+    method = 'GET'
+    path = '/up'
+    timeout = '5s'
+
+[env]
+  APP_NAME = 'crowpond'
+  APP_ENV = 'production'
+  APP_DEBUG = 'false'
+  APP_URL = 'https://manage.example.com'
+  LOG_CHANNEL = 'stderr'
+  LOG_STDERR_FORMATTER = 'Monolog\Formatter\JsonFormatter'
+  DB_CONNECTION = 'pgsql'
+  SESSION_DRIVER = 'cookie'
+  SESSION_ENCRYPT = 'true'
+  SESSION_SECURE_COOKIE = 'true'
+  SESSION_SAME_SITE = 'strict'
+  CACHE_STORE = 'file'
+  QUEUE_CONNECTION = 'sync'
+  MAIL_MAILER = 'log'
+  GATEWAY_URL = 'https://api.example.com'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'
+```
+
+<Steps>
+
+1. Create the app and set the secrets. Generate the key with `docker run --rm ghcr.io/crowpond/admin:latest php artisan key:generate --show`; the token is the one from the gateway's step 5.
+
+   ```sh
+   fly apps create your-admin
+   fly secrets set -a your-admin \
+     APP_KEY='base64:...' \
+     GATEWAY_ADMIN_TOKEN='...' \
+     DB_URL='postgres://crowpond_admin:PASSWORD@your-postgres.internal:5432/crowpond_admin'
+   ```
+
+2. Deploy, add the hostname, then run the migrations and create the first user. The console does not migrate on start:
+
+   ```sh
+   fly deploy -c admin/fly.toml --image ghcr.io/crowpond/admin:latest
+   fly certs add manage.example.com -a your-admin
+   fly ssh console -a your-admin --user www-data -C "php artisan migrate --force"
+   fly ssh console -a your-admin --user www-data -C "php artisan admin:create-user"
+   ```
+
+   `admin:create-user` asks questions, so run it in an interactive `fly ssh console` session if the `-C` form does not give you a prompt.
+
+</Steps>
+
+<Aside type="tip" title="GATEWAY_URL: public or private?">
+`GATEWAY_URL` is the address the console itself uses. Use the public `https://` URL: with `auto_stop_machines` a stopped gateway is woken by the Fly proxy only for requests that come through it, which `*.internal` addresses do not. If you set `min_machines_running = 1` on the gateway you may use the private name instead.
+</Aside>

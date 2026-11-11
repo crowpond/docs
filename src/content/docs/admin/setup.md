@@ -47,4 +47,6 @@ The tests fake the gateway's responses and use an in-memory SQLite database; the
 
 ## Security notes
 
-Every page sets a strict Content-Security-Policy (same-origin only, no framing, per-request nonce for scripts and styles). `script-src` includes `'unsafe-eval'` because Livewire's Alpine needs it; that is the one weakening. Table names, object ids and statuses are validated before they enter a URL.
+Every page sets a strict Content-Security-Policy (same-origin only, no framing, per-request nonce for scripts and styles). `script-src` includes `'unsafe-eval'` because Livewire's Alpine needs it; that is the one weakening. Table names, object ids and statuses are validated before they enter a URL, and record identifiers in components are locked against tampering. Row filters are passed to the gateway exactly as typed. The gateway's download links are never shown, not even in the request log bar.
+
+Fortify throttles logins, sessions are encrypted and `SameSite=Strict`, and all state-changing requests are CSRF-protected, see [Users and login](/docs/admin/users/). The console has no roles: anyone who can log in can do everything its admin token can.

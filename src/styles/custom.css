@@ -1,0 +1,89 @@
+@import '@fontsource-variable/bricolage-grotesque/wght.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/* Look and feel follow the admin console: Bricolage Grotesque for display, IBM Plex Mono for code,
+   night ink #0F1C26, pond teal #3A8791, amber #E9B44C and ice #E3EDF0. */
+:root {
+  --sl-font-system: 'Bricolage Grotesque Variable', system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --sl-font-system-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sl-color-accent-low: #12303c;
+  --sl-color-accent: #3a8791;
+  --sl-color-accent-high: #bfe3e8;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #e3edf0;
+  --sl-color-gray-2: #c3ced6;
+  --sl-color-gray-3: #8a9ba6;
+  --sl-color-gray-4: #556873;
+  --sl-color-gray-5: #2c3d48;
+  --sl-color-gray-6: #1a2a35;
+  --sl-color-black: #0f1c26;
+
+  /* diagrams */
+  --d-ink: #e6edf2;
+  --d-muted: #8a9ba6;
+  --d-box: #1a2a35;
+  --d-line: #7d909c;
+  --d-accent: #6fb3bc;
+  --d-accent-bg: #12303c;
+  --d-hot: #e9b44c;
+  --d-hot-bg: #3a2f14;
+  --d-cold: #7fb2e8;
+  --d-cold-bg: #1b2f48;
+  --d-ok: #7fd0a0;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #d3e7ea;
+  --sl-color-accent: #2c6f79;
+  --sl-color-accent-high: #12404a;
+  --sl-color-white: #0f1c26;
+  --sl-color-gray-1: #1a2a35;
+  --sl-color-gray-2: #2c3d48;
+  --sl-color-gray-3: #556873;
+  --sl-color-gray-4: #8a9ba6;
+  --sl-color-gray-5: #cdd6dc;
+  --sl-color-gray-6: #e8eef2;
+  --sl-color-gray-7: #f3f6f8;
+  --sl-color-black: #ffffff;
+
+  --d-ink: #0f1c26;
+  --d-muted: #556873;
+  --d-box: #ffffff;
+  --d-line: #6b7f8b;
+  --d-accent: #2c6f79;
+  --d-accent-bg: #e3edf0;
+  --d-hot: #9a6a0c;
+  --d-hot-bg: #fbf0d4;
+  --d-cold: #2a64a8;
+  --d-cold-bg: #e3eefb;
+  --d-ok: #1d7a45;
+}
+
+.site-title { font-weight: 800; letter-spacing: -0.01em; }
+h1, h2, h3 { letter-spacing: -0.01em; }
+
+/* Landing page */
+.hero h1 { font-weight: 800; }
+
+/* Diagrams (inline SVG, themed through the --d-* variables above) */
+figure.diagram { margin: 1.5rem 0; }
+figure.diagram .scroll { overflow-x: auto; border: 1px solid var(--sl-color-gray-5); border-radius: 0.5rem; background: var(--sl-color-bg-nav, transparent); padding: 0.5rem; }
+figure.diagram svg { display: block; min-width: 700px; width: 100%; height: auto; color: var(--d-ink); font-family: var(--sl-font-system); font-size: 13px; }
+@media (min-width: 1100px) { figure.diagram { margin-inline: -2rem; } }
+figure.diagram figcaption { color: var(--sl-color-gray-3); font-size: var(--sl-text-sm); margin-top: 0.5rem; }
+svg .t { fill: var(--d-ink); }
+svg .t-muted { fill: var(--d-muted); }
+svg .t-b { fill: var(--d-ink); font-weight: 700; }
+svg .t-h { font-weight: 700; font-size: 14px; letter-spacing: 0.04em; fill: var(--d-muted); }
+svg .box { fill: var(--d-box); stroke: var(--d-line); stroke-width: 1.2; }
+svg .box-accent { fill: var(--d-accent-bg); stroke: var(--d-accent); stroke-width: 1.6; }
+svg .box-hot { fill: var(--d-hot-bg); stroke: var(--d-hot); stroke-width: 1.4; }
+svg .box-cold { fill: var(--d-cold-bg); stroke: var(--d-cold); stroke-width: 1.4; }
+svg .zone { fill: none; stroke: var(--d-line); stroke-width: 1; stroke-dasharray: 5 4; }
+svg .edge { fill: none; stroke: var(--d-line); stroke-width: 1.4; }
+svg .edge-accent { fill: none; stroke: var(--d-accent); stroke-width: 1.8; }
+svg .edge-dash { fill: none; stroke: var(--d-line); stroke-width: 1.4; stroke-dasharray: 5 4; }
+svg .arrow-fill { fill: var(--d-line); }
+svg .arrow-accent { fill: var(--d-accent); }
+svg .dot { fill: var(--d-accent); }
+svg .x { stroke: var(--d-hot); stroke-width: 2; }

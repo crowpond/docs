@@ -16,9 +16,36 @@ export default defineConfig({
       ],
       title: 'crowpond',
       description: 'Documentation for crowpond, an open source datalake: gateway and admin console.',
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/crowpond' }],
+      logo: {
+        light: './src/assets/logo-light.svg',
+        dark: './src/assets/logo-dark.svg',
+        alt: 'crowpond',
+      },
+      favicon: '/favicon.svg',
+      customCss: ['./src/styles/custom.css'],
+      social: [
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/crowpond' },
+      ],
+      editLink: { baseUrl: 'https://github.com/crowpond/docs/edit/main/' },
+      lastUpdated: true,
       sidebar: [
-        { label: 'Getting started', slug: 'getting-started' },
+        {
+          label: 'Start here',
+          items: [
+            { slug: 'getting-started' },
+            { slug: 'concepts/overview', badge: { text: 'New', variant: 'tip' } },
+          ],
+        },
+        {
+          label: 'Installation',
+          items: [
+            { slug: 'installation' },
+            { slug: 'installation/docker' },
+            { slug: 'installation/fly' },
+            { slug: 'installation/portainer' },
+            { slug: 'installation/upgrades-and-backups' },
+          ],
+        },
         {
           label: 'Concepts',
           items: [
@@ -34,9 +61,11 @@ export default defineConfig({
         {
           label: 'Gateway',
           items: [
+            { slug: 'gateway/api' },
             { slug: 'gateway/configuration' },
             { slug: 'gateway/deployment' },
             { slug: 'gateway/cleanup-job' },
+            { slug: 'gateway/limits' },
           ],
         },
         {
@@ -48,7 +77,13 @@ export default defineConfig({
             { slug: 'admin/audit' },
           ],
         },
-        { label: 'Operations', slug: 'operations' },
+        {
+          label: 'Operate and develop',
+          items: [
+            { slug: 'operations' },
+            { slug: 'development' },
+          ],
+        },
         ...openAPISidebarGroups,
       ],
     }),

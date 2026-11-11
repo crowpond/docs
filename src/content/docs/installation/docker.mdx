@@ -1,0 +1,204 @@
+---
+title: Docker and Docker Compose
+description: A complete Compose file with PostgreSQL, the gateway and the admin console.
+---
+
+import { Steps, Aside, Tabs, TabItem, FileTree } from '@astrojs/starlight/components';
+
+This guide runs everything on one Docker host with Docker Compose. Use it to try crowpond, or as the base for a small production setup. It assumes the published images `ghcr.io/crowpond/gateway` and `ghcr.io/crowpond/admin` are pullable.
+
+<FileTree>
+
+- crowpond/
+  - compose.yaml
+  - .env
+  - Caddyfile  (optional reverse proxy)
+
+</FileTree>
+
+## The Compose file
+
+```yaml title="compose.yaml" {7-9,22-26,47-49}
+name: crowpond
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crowpond
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: gateway
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crowpond -d gateway"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  gateway:
+    image: ghcr.io/crowpond/gateway:latest
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://crowpond:${POSTGRES_PASSWORD}@postgres:5432/gateway
+      BUCKET_NAME: ${S3_BUCKET:?set S3_BUCKET in .env}
+      AWS_ENDPOINT_URL_S3: ${S3_ENDPOINT:-}
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      AWS_REGION: ${S3_REGION:-auto}
+      HOT_DAYS: "7"
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:   # the image already declares this one; shown for reference
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  admin:
+    image: ghcr.io/crowpond/admin:latest
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+    environment:
+      APP_NAME: crowpond
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: ${APP_KEY:?set APP_KEY in .env}
+      APP_URL: ${ADMIN_URL:-http://localhost:8081}
+      LOG_CHANNEL: stderr
+      LOG_STDERR_FORMATTER: Monolog\Formatter\JsonFormatter
+      DB_CONNECTION: pgsql
+      DB_URL: postgres://crowpond_admin:${ADMIN_DB_PASSWORD:?set ADMIN_DB_PASSWORD in .env}@postgres:5432/crowpond_admin
+      SESSION_DRIVER: cookie
+      SESSION_ENCRYPT: "true"
+      SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE:-true}
+      SESSION_SAME_SITE: strict
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: log
+      GATEWAY_URL: http://gateway:8080
+      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:-}
+    ports:
+      - "127.0.0.1:8081:8080"
+    # The image declares its own HEALTHCHECK (GET /up).
+
+volumes:
+  pgdata:
+```
+
+```ini title=".env"
+POSTGRES_PASSWORD=change-me
+ADMIN_DB_PASSWORD=change-me-too
+# Your S3-compatible bucket (created beforehand)
+S3_BUCKET=crowpond
+S3_ENDPOINT=https://s3.example.com
+S3_REGION=auto
+S3_ACCESS_KEY=...
+S3_SECRET_KEY=...
+# php artisan key:generate --show   (see step 3)
+APP_KEY=
+# Filled in after step 4
+GATEWAY_ADMIN_TOKEN=
+# Public URL of the console, and true when it is served over HTTPS
+ADMIN_URL=https://manage.example.com
+SESSION_SECURE_COOKIE=true
+```
+
+<Aside type="caution">
+`SESSION_SECURE_COOKIE=true` makes browsers drop the session cookie on plain `http://`. For a quick test on `http://localhost:8081` set it to `false`; keep it `true` behind HTTPS.
+</Aside>
+
+<Aside type="note" title="The bucket is not in this file">
+crowpond needs an S3-compatible bucket but does not ship one. Use a hosted service (AWS S3, Tigris, Cloudflare R2, Backblaze B2 and so on) or run a self-hosted S3 server of your choice and add it to the file yourself. Files are uploaded straight to the bucket with a presigned URL built from `AWS_ENDPOINT_URL_S3`, so that address must be reachable by your uploading clients, not only by the gateway. For AWS S3 itself leave `S3_ENDPOINT` empty and set the real region.
+</Aside>
+
+## First run
+
+<Steps>
+
+1. **Create the console's database and user** once PostgreSQL is up:
+
+   ```sh
+   docker compose up -d postgres
+   docker compose exec postgres psql -U crowpond -d gateway -c "CREATE USER crowpond_admin WITH PASSWORD 'change-me-too'" \
+     -c "CREATE DATABASE crowpond_admin OWNER crowpond_admin"
+   ```
+
+   Use the value of `ADMIN_DB_PASSWORD` for the password. The bucket must already exist.
+
+2. **Start the gateway** and its dependencies. It runs its migrations on start:
+
+   ```sh
+   docker compose up -d gateway
+   curl -fsS http://127.0.0.1:8080/healthz
+   ```
+
+3. **Generate the console's key** and put it in `.env` as `APP_KEY`:
+
+   ```sh
+   docker run --rm ghcr.io/crowpond/admin:latest php artisan key:generate --show
+   ```
+
+4. **Create the first admin token** and put it in `.env` as `GATEWAY_ADMIN_TOKEN`:
+
+   ```sh
+   docker compose exec -T -u www-data gateway php bin/create-token console admin
+   ```
+
+   The secret is the last line of output; the JSON line before it is a log event written to stderr. It is shown only this once.
+
+5. **Start the console**, migrate and create a user:
+
+   ```sh
+   docker compose up -d admin
+   docker compose exec -u www-data admin php artisan migrate --force
+   docker compose exec -it -u www-data admin php artisan admin:create-user
+   ```
+
+6. **Open the console** at `http://localhost:8081` (or behind your proxy) and log in.
+
+</Steps>
+
+## Scheduling the jobs
+
+Nothing in the containers runs on a timer. From the host's crontab:
+
+```cron title="crontab"
+15 3 * * * cd /srv/crowpond && docker compose exec -T -u www-data gateway php bin/archive
+45 3 * * * cd /srv/crowpond && docker compose exec -T -u www-data gateway php bin/cleanup
+```
+
+Or run a throw-away container with the same environment: `docker compose run --rm -T gateway php bin/archive`. Both exit non-zero on failure. You can also call `POST /archive/run` and `POST /cleanup/run` with an admin token from any scheduler. The cleanup job is only needed when files have a `retention_days` or `AUDIT_RETENTION_DAYS` is set; the console's `php artisan admin:prune-audit` needs its own schedule if you set the console's `AUDIT_RETENTION_DAYS`.
+
+## Reverse proxy
+
+Both containers speak plain HTTP on 8080 and trust whatever sits in front. Bind them to localhost, as in the file above, and put a TLS-terminating proxy in front. With Caddy:
+
+```caddyfile title="Caddyfile"
+api.example.com {
+	reverse_proxy 127.0.0.1:8080
+}
+
+manage.example.com {
+	reverse_proxy 127.0.0.1:8081
+}
+```
+
+Set `APP_URL` to the console's public `https://` URL, and give the console a `GATEWAY_URL` it can reach: the internal `http://gateway:8080` is fine and keeps that traffic off the proxy. Producers use the public `https://api.example.com`.
+
+## Check it works
+
+```sh
+TOKEN=... # a token from the console's Tokens page
+curl -s -X POST http://127.0.0.1:8080/objects \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"source":"demo","owner":"me","payload":{"hello":"pond"}}'
+```
+
+See the [API reference](/docs/api-reference/) for the exact request shapes.

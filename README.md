@@ -18,7 +18,16 @@ npm run build      # output in dist/
 npm run preview
 ```
 
-Content is in `src/content/docs/` (Markdown/MDX); the sidebar is in `astro.config.mjs`.
+Content is in `src/content/docs/` (Markdown/MDX); the sidebar is in `astro.config.mjs`. `npm run check-links` (run after a build, and in CI) verifies that every internal link and anchor in `dist/` resolves.
+
+## Structure
+
+- `src/content/docs/`: pages. `installation/` (Docker, Fly.io, Portainer guides), `concepts/`, `gateway/`, `admin/`, `operations.md`, `development.md`. The API reference is generated (see below).
+- `src/components/diagrams/`: the diagrams as inline-SVG Astro components (architecture, lifecycle, read path, deployment topology). They are coloured with the `--d-*` CSS variables in `src/styles/custom.css`, so they follow the light/dark theme switch, and carry `<title>`/`<desc>` for screen readers. Embed one in an `.mdx` page with `import Architecture from '../../components/diagrams/Architecture.astro'`.
+- `src/styles/custom.css`: theme (palette from the identity sketch: night ink `#0F1C26`, pond teal `#3A8791`, amber `#E9B44C`, ice `#E3EDF0`; Bricolage Grotesque and IBM Plex Mono, self-hosted from `@fontsource`, no CDN).
+- `src/assets/`: logo (one-colour mark, light and dark files) and the landing page hero scene.
+
+Last-updated dates come from git history, so CI checks out the full history.
 
 ## Deploy
 

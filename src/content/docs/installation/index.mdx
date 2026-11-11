@@ -1,0 +1,95 @@
+---
+title: Installation overview
+description: What you need to run crowpond and the checklist for the first start.
+sidebar:
+  label: Overview
+---
+
+import { Steps, Aside, LinkCard, CardGrid, Badge } from '@astrojs/starlight/components';
+import Topology from '../../../components/diagrams/Topology.astro';
+
+crowpond is two containers that you run next to services you already have or can rent. There is no installer: you pick a place to run containers and follow the matching guide.
+
+## Components
+
+| Component | What it is | Image | Port | Health check |
+| --- | --- | --- | --- | --- |
+| Gateway | The REST API, archive job and cleanup job | `ghcr.io/crowpond/gateway` | 8080 | `GET /healthz` |
+| Admin console | Web console, uses only the gateway's API | `ghcr.io/crowpond/admin` | 8080 | `GET /up` |
+
+Both images are built for amd64 and arm64. `latest` follows `main`; version tags such as `v1.2.3` also give `1.2.3` and `1.2`. Both run [FrankenPHP](https://frankenphp.dev) with plain HTTP, and both drop from root to the `www-data` user in their entrypoint, so they work on runtimes that start containers as root (Fly) and on ones that already use a non-root user.
+
+## What you provide
+
+- **PostgreSQL 16** for the gateway's live data. crowpond does not ship a database image.
+- **A second database on the same server** (or another server), with its own user, for the admin console's accounts. The console never touches the gateway's database.
+- **An S3-compatible bucket** for files and the Parquet archive: AWS S3, Tigris, Cloudflare R2, MinIO and similar. Without one, file endpoints return 503 and nothing is archived. The gateway talks to a custom endpoint with path-style addressing.
+- **TLS in front of both containers.** They speak plain HTTP on port 8080: use a reverse proxy, a load balancer, or Fly's proxy.
+- **A scheduler** for the archive job and, if you use file retention or `AUDIT_RETENTION_DAYS`, the cleanup job. Nothing in crowpond runs on a timer. Cron, a scheduled container or an external caller of `POST /archive/run` all work.
+
+DuckDB, which the gateway uses to read and write Parquet, is already inside the gateway image (`libduckdb.so`, `DUCKDB_LIB` preset and `ffi.enable=1` in its PHP configuration). You only need to install it if you run the gateway from source.
+
+<Aside type="note" title="Memory">
+Give the gateway at least 512 MB; the archive job needs about 180 MB of working memory on top of the app. The admin console runs in 256 MB.
+</Aside>
+
+## Pick a guide
+
+<CardGrid>
+  <LinkCard title="Docker Compose" description="Postgres, gateway and admin on one host." href="/docs/installation/docker/" />
+  <LinkCard title="Fly.io" description="The same images as two Fly apps with fly.toml examples." href="/docs/installation/fly/" />
+  <LinkCard title="Portainer" description="A stack pasted into Portainer's editor." href="/docs/installation/portainer/" />
+  <LinkCard title="Upgrades and backups" description="Pulling new images and protecting your data." href="/docs/installation/upgrades-and-backups/" />
+</CardGrid>
+
+<Topology />
+
+## First-run checklist
+
+The order matters, because the console needs a gateway token and its own database before it can start.
+
+<Steps>
+
+1. **Create the databases.** The gateway's database (for example `gateway`) and the console's own database and user, `crowpond_admin`:
+
+   ```sql
+   CREATE DATABASE crowpond_admin;
+   CREATE USER crowpond_admin WITH PASSWORD '...';
+   GRANT ALL ON DATABASE crowpond_admin TO crowpond_admin;
+   ```
+
+   On PostgreSQL 15 and later, also make the user the owner (`ALTER DATABASE crowpond_admin OWNER TO crowpond_admin;`) so it may create tables in the `public` schema.
+
+2. **Create the bucket** and an access key that can read, write and delete in it.
+
+3. **Start the gateway** with `DATABASE_URL` and the bucket variables. On start it runs its migrations (`bin/migrate`, idempotent and advisory-locked), so there is nothing to run by hand. Check `GET /healthz`.
+
+4. **Create the first admin token** inside the gateway container. It prints the secret once, as the last line of its output:
+
+   ```sh
+   php bin/create-token console admin
+   ```
+
+   Every later token can be issued from the console's Tokens page or with `POST /tokens`.
+
+5. **Start the admin console** with `APP_KEY`, `DB_URL`, `GATEWAY_URL` and `GATEWAY_ADMIN_TOKEN` (the token from step 4). Generate the key with `php artisan key:generate --show`.
+
+6. **Run the console's migrations.** The console does not migrate on start:
+
+   ```sh
+   php artisan migrate --force
+   ```
+
+7. **Create the first console user.** There is no self-service registration:
+
+   ```sh
+   php artisan admin:create-user
+   ```
+
+8. **Schedule the jobs**: `php bin/archive` daily, and `php bin/cleanup` daily if you use retention. See [Operations](/docs/operations/).
+
+</Steps>
+
+<Aside type="caution" title="Run one-off commands as www-data">
+The commands above run through `docker exec`, Portainer's console or `fly ssh console`, which start as root. Add `-u www-data` (Docker) or choose that user (Portainer) so files the command creates are owned by the user the server runs as. The gateway's archive cache, for one, checks ownership.
+</Aside>

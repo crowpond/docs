@@ -1,0 +1,60 @@
+---
+title: Labels and binding (STANAG 4774/4778)
+description: How every stored object carries a confidentiality label bound to it.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Every object carries a confidentiality label, expressed per **STANAG 4774** (confidentiality label syntax) and bound to the data per **STANAG 4778** (binding of metadata to data objects).
+
+## Labels
+
+Only the `PUBLIC` policy with classification `UNMARKED` is accepted. Anything else is rejected, at ingest and again before archiving. The label is metadata only: nothing enforces access by label.
+
+A label is optional in a request and defaults to the only accepted value:
+
+```json
+{"label": {"policy": "PUBLIC", "classification": "UNMARKED"}}
+```
+
+Any other policy or classification gives `422`. The `PUBLIC` policy has the identifier `urn:oid:1.3.6.1.4.1.31778.12.2.1`. crowpond never uses a NATO policy as originator label, because that would imply NATO ownership of the data.
+
+## Binding
+
+- **Stored files in the archive** use a **detached** binding: each Parquet file has a sibling `<file>.bdo.xml` that references it and carries the label and local-use digest attributes (`ar:sha256`, `ar:bytes`, `ar:rows`). The `ar:` attributes are local to crowpond and not part of the standard. The label is on the file, not on each record.
+- **Catalog objects** carry the binding as columns on the catalog row.
+- **Emitted objects** (API responses) are not bound with a separate file.
+
+### What a binding file looks like
+
+This is the detached binding the archive job writes next to `part-0.parquet`:
+
+```xml title="part-0.parquet.bdo.xml" {13-14,17}
+<?xml version="1.0" encoding="UTF-8"?>
+<mb:BindingInformation
+ xmlns:mb="urn:nato:stanag:4778:bindinginformation:1:0"
+ xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+ xmlns:xmime="http://www.w3.org/2005/05/xmlmime"
+ xmlns:ar="urn:crowpond:binding:1:0">
+ <mb:MetadataBindingContainer Id="mb-c-9f2c41...">
+  <mb:MetadataBinding Id="mb-b-9f2c41...">
+   <mb:Metadata>
+    <slab:originatorConfidentialityLabel xmlns:slab="urn:nato:stanag:4774:confidentialitymetadatalabel:1:0">
+     <slab:ConfidentialityInformation>
+      <slab:PolicyIdentifier URI="urn:oid:1.3.6.1.4.1.31778.12.2.1">PUBLIC</slab:PolicyIdentifier>
+      <slab:Classification>UNMARKED</slab:Classification>
+     </slab:ConfidentialityInformation>
+     <slab:CreationDateTime>2026-11-11T03:15:02Z</slab:CreationDateTime>
+    </slab:originatorConfidentialityLabel>
+   </mb:Metadata>
+   <mb:DataReference URI="s3://bucket/archive/..." xmime:contentType="application/vnd.apache.parquet" ar:sha256="9f2c..." ar:bytes="1048576" ar:rows="3600"/>
+  </mb:MetadataBinding>
+ </mb:MetadataBindingContainer>
+</mb:BindingInformation>
+```
+
+The highlighted lines are the label and the data reference with its digest. The `ar:` attributes belong to crowpond and are not part of the standard. The binding profile for Parquet is crowpond's own; the standard does not define one. A reader that wants to trust a file recomputes its SHA-256 and compares it with `ar:sha256`; the gateway does this on every read of an archive file.
+
+The gateway's archive bindings have not been validated against the ADatP-4778 XSD. They are not signed: they carry a digest but no `ds:Signature`.
+
+The standard documents themselves are distributed by NATO under terms that forbid reproducing them, so they are not included here.

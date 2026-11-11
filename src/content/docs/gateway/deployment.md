@@ -3,6 +3,10 @@ title: Gateway deployment
 description: Running the gateway image with Docker or on Fly.io.
 ---
 
+:::tip[Step-by-step guides]
+This page is the reference for the image. For complete walk-throughs with a Compose file, `fly.toml` examples and a Portainer stack, see [Installation](/docs/installation/).
+:::
+
 The image is published to `ghcr.io/crowpond/gateway` (amd64 and arm64) by the repository's CI. `latest` follows `main`; version tags (`v1.2.3`) give `1.2.3` and `1.2`. To build it yourself, run `docker build -t crowpond-gateway .` in the gateway repository.
 
 It is FrankenPHP serving `public/` on port 8080. On start it runs `bin/migrate` (idempotent, advisory-locked) and then the server. `GET /healthz` is the health check, and the image declares a `HEALTHCHECK` for it.

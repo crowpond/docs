@@ -1,0 +1,9 @@
+---
+// Wraps an inline SVG diagram in a figure with a caption. The SVG scrolls sideways on narrow screens.
+interface Props { caption: string }
+const { caption } = Astro.props;
+---
+<figure class="diagram">
+  <div class="scroll" tabindex="0"><slot /></div>
+  <figcaption>{caption}</figcaption>
+</figure>

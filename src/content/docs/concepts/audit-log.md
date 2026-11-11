@@ -39,6 +39,20 @@ For a change made in one transaction, the audit row is inserted in that transact
 
 `GET /audit` needs an admin token; an api token gets 403 and the attempt is itself recorded. All filters are optional and combined with AND: `from` (inclusive), `to` (exclusive) as RFC 3339 timestamps, `token_id`, `action`, `target_id`, `trace_id` (32 lower-case hex) and `outcome`. Pagination is keyset on `audit_id` with `limit` (1 to 1000, default 100) and `after` (the previous `next`). Oldest first by default; `order=desc` gives newest first.
 
+A response, abridged:
+
+```json
+{"items": [{"audit_id": "01a1c9dc-957f-7582-90f2-2480ab5d977c", "at": "2026-11-11T09:07:19.038989+00:00",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "span_id": "f9790774d574c856", "parent_span_id": "00f067aa0ba902b7",
+  "token_id": "01a1c9b3-0482-7515-9987-69974bd5ca66", "token_name": "feed-gateway", "role": "api",
+  "method": "POST", "route": "/objects", "action": "object.create", "target_type": "object",
+  "target_id": "01a1c9dc-9575-7f1e-8a00-1c4d2e5b6a70", "status": 201, "outcome": "ok",
+  "detail": {"kind": "file", "source": "drone-17", "owner": "survey-team"}}],
+ "next": null}
+```
+
+Indexes cover `at`, `token_id`, `action`, `trace_id` and `target_id`.
+
 ## Retention and integrity
 
 Rows are kept forever unless `AUDIT_RETENTION_DAYS` is set. The cleanup job then deletes older rows and records that in one `audit.purge` row. Apart from that the application only inserts: it never updates or deletes an audit row. To enforce this in the database too, grant the gateway's role `INSERT, SELECT` (and `DELETE` only if you use retention) on `audit_log`, with no `UPDATE`. Hash-chaining rows to make tampering detectable is not built; it is an open question.
