@@ -129,7 +129,7 @@
         "tags": [
           "Schemas"
         ],
-        "description": "Table creation is manual: this and approving a proposal are the only ways a typed table comes to exist. Later versions may only add columns. Registering a new version of an auto-matched, per-record schema also moves rows that now fit out of `generic` (one bounded step, same as `POST /schemas/{name}/backfill`) and returns `backfill`; first registrations, bulk tables and schemas that are not auto-matched do no backfill, and `backfill: false` skips it.",
+        "description": "Table creation is manual: this and approving a proposal are the only ways a typed table comes to exist. Later versions may only add columns. Registering a new version of an auto-matched, per-record schema also moves rows that now fit out of `generic` (one bounded step, same as `POST /schemas/{name}/backfill`) and returns `backfill`; first registrations, bulk tables and schemas that are not auto-matched do no backfill, and `backfill: false` skips it. Optional `auto_match` sets auto-routing for this version (routing reads the latest version); a first registration with `auto_match: true` does no backfill (use `backfill` on `POST /schemas/{name}/auto-route`).",
         "requestBody": {
           "required": true,
           "content": {
@@ -242,6 +242,82 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/schemas/{name}/auto-route": {
+      "post": {
+        "operationId": "autoRouteSchema",
+        "summary": "Turn auto-routing on or off for a schema",
+        "tags": [
+          "Schemas"
+        ],
+        "description": "Sets `auto_match` (auto-routing) on the **latest version** of the schema; routing reads the latest version only, and later versions registered without `auto_match` inherit the flag. It is not a new version. Turning it on returns `warnings`: the names of other auto-routed schemas whose payload keys overlap this schema's by at least 0.8 (Jaccard), which would compete for the same payloads (the best overlap wins); this is informational. `backfill: true` (default false, only when enabling) also runs one bounded backfill step as `POST /schemas/{name}/backfill` does and returns `backfill`; while `more` is true, call that endpoint again. Audited as `schema.auto_route` (and `schema.backfill` when a backfill ran) in the same transaction. Refused with 409 for a bulk table (it has no per-record catalog, so it cannot be auto-routed); 404 for an unknown schema.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Schema name.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The schema's current state.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoRouteResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoRouteRequest"
+              }
+            }
           }
         }
       }
@@ -2422,6 +2498,10 @@
             "type": "boolean",
             "default": true,
             "description": "Set false to register a new version without moving rows out of `generic`; run `POST /schemas/{name}/backfill` later."
+          },
+          "auto_match": {
+            "type": "boolean",
+            "description": "Whether payloads without a named schema are auto-routed to this schema's table (routing reads the latest version). Omitted: a new schema is not auto-routed and a new version inherits the previous version's setting. `true` for a bulk table is refused with 422. Can be changed later with `POST /schemas/{name}/auto-route`."
           }
         },
         "required": [
@@ -4068,6 +4148,68 @@
         "required": [
           "policy",
           "classifications"
+        ]
+      },
+      "AutoRouteRequest": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Turn auto-routing on or off for the latest version of the schema."
+          },
+          "backfill": {
+            "type": "boolean",
+            "default": false,
+            "description": "Only when enabling: also run one bounded backfill step (as `POST /schemas/{name}/backfill`). Ignored when disabling."
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "AutoRouteResult": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "The latest version, the one whose flag changed."
+          },
+          "auto_match": {
+            "type": "boolean",
+            "description": "Whether payloads are auto-routed to this schema's table now."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Other auto-routed schemas whose key overlap with this one is at least 0.8; empty when disabling."
+          },
+          "backfill": {
+            "type": "object",
+            "description": "Present only when a backfill ran. `more: true` means call `POST /schemas/{name}/backfill` again.",
+            "properties": {
+              "moved": {
+                "type": "integer"
+              },
+              "more": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "moved",
+              "more"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "auto_match",
+          "warnings"
         ]
       }
     }
