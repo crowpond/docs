@@ -129,7 +129,7 @@
         "tags": [
           "Schemas"
         ],
-        "description": "Table creation is manual: this and approving a proposal are the only ways a typed table comes to exist. Later versions may only add columns.",
+        "description": "Table creation is manual: this and approving a proposal are the only ways a typed table comes to exist. Later versions may only add columns. Registering a new version of an auto-matched, per-record schema also moves rows that now fit out of `generic` (one bounded step, same as `POST /schemas/{name}/backfill`) and returns `backfill`; first registrations, bulk tables and schemas that are not auto-matched do no backfill, and `backfill: false` skips it.",
         "requestBody": {
           "required": true,
           "content": {
@@ -181,6 +181,69 @@
             "$ref": "#/components/parameters/Traceparent"
           }
         ]
+      }
+    },
+    "/schemas/{name}/backfill": {
+      "post": {
+        "operationId": "backfillSchema",
+        "summary": "Move matching rows out of generic into a table",
+        "tags": [
+          "Schemas"
+        ],
+        "description": "Moves rows in `generic` that fit the latest version of an auto-matched schema into its table, for good. Only hot rows are touched (`generic` holds no archived data). One call moves at most a fixed number of rows (5000); while `more` is true, call again. Rows the database rejects stay in `generic`. Takes the same shared archive lock as approving a proposal and is audited as `schema.backfill`. Refused with 409 for a bulk table (it has no generic rows) and for a schema that is not auto-matched (unnamed payloads are not meant to land in its table).",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Schema name.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One bounded step done.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaBackfill"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
       }
     },
     "/objects": {
@@ -2354,6 +2417,11 @@
           },
           "label": {
             "$ref": "#/components/schemas/Label"
+          },
+          "backfill": {
+            "type": "boolean",
+            "default": true,
+            "description": "Set false to register a new version without moving rows out of `generic`; run `POST /schemas/{name}/backfill` later."
           }
         },
         "required": [
@@ -2404,6 +2472,22 @@
               "record",
               "table"
             ]
+          },
+          "backfill": {
+            "type": "object",
+            "description": "Present only when a backfill ran. `more: true` means call `POST /schemas/{name}/backfill` again.",
+            "properties": {
+              "moved": {
+                "type": "integer"
+              },
+              "more": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "moved",
+              "more"
+            ]
           }
         },
         "required": [
@@ -2413,6 +2497,29 @@
           "columns",
           "auto_match",
           "catalog"
+        ]
+      },
+      "SchemaBackfill": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "moved": {
+            "type": "integer"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "moved",
+          "more"
         ]
       },
       "FileDescriptor": {
