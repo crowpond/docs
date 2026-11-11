@@ -334,7 +334,7 @@
         "tags": [
           "Objects"
         ],
-        "description": "Records are stored as-is (matched or validated against a schema). For a file: `PUT` the content to `upload_url`, then call `POST /objects/{id}/commit`. A single record can also go straight into a bulk table by naming it in `schema` (no catalog row is written then); use `POST /tables/{table}/records` for batches.",
+        "description": "Records are stored as-is (matched or validated against a schema). For a file: `PUT` the content to `upload_url`, then call `POST /objects/{id}/commit`. A single record can also go straight into a bulk table by naming it in `schema` (no catalog row is written then); use `POST /tables/{table}/records` for batches. A file must be between 1 byte and 5 GiB (`file.size`); `owner` and `source` are 1 to 200 characters.",
         "requestBody": {
           "required": true,
           "content": {
@@ -454,7 +454,8 @@
           "502": {
             "$ref": "#/components/responses/BadGateway"
           }
-        }
+        },
+        "description": "Returns the catalog row and, for a record, its payload. A record on the live tier is read from PostgreSQL. A record whose day has been archived is read from the verified Parquet archive file instead: the file's SHA-256 is checked against the catalog before the payload is returned, and the response carries an `archive` object naming the file and its digest (`tier` tells which tier the object is on). A file object has no payload; a committed one carries `download_url`. A digest or size mismatch fails the request with 500 (and is logged) rather than returning unverified data; 502 means the archive could not be reached."
       },
       "delete": {
         "operationId": "deleteObject",
@@ -749,7 +750,7 @@
         "tags": [
           "Tables"
         ],
-        "description": "Reads PostgreSQL and the verified Parquet archive as one snapshot. At most 31 archive files are opened per request, so a page can be short and still carry `next`: follow it until it is null. The `generic` table cannot be filtered by field (422); use `GET /objects`.",
+        "description": "Reads PostgreSQL and the verified Parquet archive as one snapshot. At most 31 archive files are opened per request (counted in hourly files; the first hour found is always read in full), so a page can be short and still carry `next`: follow it until it is null. The `generic` table cannot be filtered by field (422); use `GET /objects`.\n\nFilters: `contains` is a case-insensitive substring match, and `%` and `_` in the value match themselves, not as wildcards (`prefix` likewise, but case-sensitive). Besides the primary key `(object_id, created_at)`, only `created_at` is indexed on a typed table, so the `_created_from`/`_created_to` bounds are cheap and filters on other columns scan the matching rows; combine them with a `created_at` range on large tables.",
         "parameters": [
           {
             "$ref": "#/components/parameters/Table"
@@ -760,7 +761,7 @@
             "required": false,
             "style": "form",
             "explode": true,
-            "description": "Column filters, as separate parameters: `<column>=<value>` or `<column>.<op>=<value>` (`op`: `eq ne gt gte lt lte in null prefix contains`, limited by column type), and `extra.<key>[.<op>]=<value>` for fields without a column (text comparison). Unknown columns and unknown parameters give 422.",
+            "description": "Column filters, as separate parameters: `<column>=<value>` or `<column>.<op>=<value>` (`op`: `eq ne gt gte lt lte in null prefix contains`, limited by column type), and `extra.<key>[.<op>]=<value>` for fields without a column (text comparison). Unknown columns and unknown parameters give 422. `contains` is case-insensitive and treats `%` and `_` literally. Only `created_at` is indexed, so other filters scan; narrow with `_created_from`/`_created_to`.",
             "schema": {
               "type": "object",
               "additionalProperties": {
@@ -2424,7 +2425,9 @@
           },
           "size": {
             "type": "integer",
-            "description": "Bytes; 1 to 5 GiB (a single presigned PUT)."
+            "description": "Bytes; 1 to 5 GiB (5368709120), the limit of a single presigned PUT. Outside that range the request is rejected (422).",
+            "minimum": 1,
+            "maximum": 5368709120
           },
           "sha256": {
             "type": "string",
