@@ -8,7 +8,7 @@ The cleanup job deletes every file whose `expires_at` has passed (see [Retention
 Run it with either:
 
 - `php bin/cleanup` inside the container (or locally against `DATABASE_URL` and the bucket), or
-- `POST /cleanup/run` with an admin token.
+- [`POST /cleanup/run`](/docs/api-reference/operations/cleanuprun/) with an admin token.
 
 Nothing in the gateway runs on a timer, so schedule it. For example with Docker:
 

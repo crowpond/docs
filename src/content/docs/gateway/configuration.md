@@ -21,14 +21,14 @@ Secrets: `DATABASE_URL` and the bucket credentials.
 
 ## Authentication
 
-Bearer tokens. Every token is a row in the `tokens` table, issued through `POST /tokens` and stored as a SHA-256 hash, never as plaintext. Two roles exist: `api` (ingest and read) and `admin` (everything, including issuing tokens, running jobs and deleting).
+Bearer tokens. Every token is a row in the `tokens` table, issued through [`POST /tokens`](/docs/api-reference/operations/createtoken/) and stored as a SHA-256 hash, never as plaintext. Two roles exist: `api` (ingest and read) and `admin` (everything, including issuing tokens, running jobs and deleting).
 
-Bootstrap the very first admin token with `bin/create-token <name> admin`, run once inside the container or locally against `DATABASE_URL`. Every later token can be issued from the admin console's Tokens page or with `POST /tokens`.
+Bootstrap the very first admin token with `bin/create-token <name> admin`, run once inside the container or locally against `DATABASE_URL`. Every later token can be issued from the admin console's Tokens page or with [`POST /tokens`](/docs/api-reference/operations/createtoken/).
 
-- `POST /tokens` returns the plaintext secret once and never again. Store it then, or issue a new token.
-- Revoking is permanent (`POST /tokens/{id}/revoke`). An unknown `token_id` gives 404; revoking an already-revoked token succeeds and does nothing.
+- The `secret` in the `POST /tokens` response is the plaintext token, shown once and never again. Store it then, or issue a new token.
+- Revoking is permanent ([`POST /tokens/{id}/revoke`](/docs/api-reference/operations/revoketoken/)). Revoking an already-revoked token succeeds and does nothing.
 - A successful request bumps the token's `last_used_at`, at most once a minute.
 
 ## Errors
 
-Errors are `{"detail": ...}` with status 401 (no token), 403 (wrong token or not admin), 404, 409, 422, 502 (archive file unavailable) or 500 (archive integrity failure).
+Errors are `{"detail": ...}`; the statuses are listed under [Behaviour common to all endpoints](/docs/gateway/api/#behaviour-common-to-all-endpoints) and on each operation page.

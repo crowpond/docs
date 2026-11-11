@@ -34,7 +34,7 @@ The same image and variables work in Docker Compose, Portainer stacks and Kubern
 docker run --rm <same env> ghcr.io/crowpond/gateway php bin/archive
 ```
 
-or call `POST /archive/run` with an admin token. See [Tiers and the archive](/docs/concepts/tiers-and-archive/).
+or call [`POST /archive/run`](/docs/api-reference/operations/runarchive/) with an admin token. See [Tiers and the archive](/docs/concepts/tiers-and-archive/).
 
 ## On Fly.io
 

@@ -40,7 +40,7 @@ The admin console sends a `traceparent` on every gateway call, so a console acti
 
 ## Jobs
 
-`POST /archive/run` and `POST /cleanup/run` log one event per day archived (`archive_day`, `archive_day_failed`) or file deleted (`file_deleted`, `file_delete_failed`) under the request's trace, then a summary event. `bin/archive` and `bin/cleanup` write the same events with a `trace_id` of their own for the whole run and no `who`.
+[`POST /archive/run`](/docs/api-reference/operations/runarchive/) and [`POST /cleanup/run`](/docs/api-reference/operations/cleanuprun/) log one event per day archived (`archive_day`, `archive_day_failed`) or file deleted (`file_deleted`, `file_delete_failed`) under the request's trace, then a summary event. `bin/archive` and `bin/cleanup` write the same events with a `trace_id` of their own for the whole run and no `who`.
 
 ## Never logged
 

@@ -37,9 +37,9 @@ For a change made in one transaction, the audit row is inserted in that transact
 
 ## Reading it
 
-`GET /audit` needs an admin token; an api token gets 403 and the attempt is itself recorded. All filters are optional and combined with AND: `from` (inclusive), `to` (exclusive) as RFC 3339 timestamps, `token_id`, `action`, `target_id`, `trace_id` (32 lower-case hex) and `outcome`. Pagination is keyset on `audit_id` with `limit` (1 to 1000, default 100) and `after` (the previous `next`). Oldest first by default; `order=desc` gives newest first.
+[`GET /audit`](/docs/api-reference/operations/listaudit/) needs an admin token; an api token gets 403 and the attempt is itself recorded. The filters (time range, token, action, target, trace id, outcome), ordering and pagination are in the [reference](/docs/api-reference/operations/listaudit/). All filters are optional and combined with AND; it lists oldest first unless `order=desc`.
 
-A response, abridged:
+A `200` response, abridged:
 
 ```json
 {"items": [{"audit_id": "01a1c9dc-957f-7582-90f2-2480ab5d977c", "at": "2026-11-11T09:07:19.038989+00:00",

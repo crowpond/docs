@@ -5,7 +5,7 @@ description: Giving files a lifetime and deleting them when it ends.
 
 import { Aside } from '@astrojs/starlight/components';
 
-A file can be given a lifetime when it is created: add `retention_days` (1 to 36500) to the `POST /objects` body. The catalog row gets `expires_at` (now plus that many days), returned by `POST /objects`, `GET /objects` and `GET /objects/{id}`. Without `retention_days` the file is kept forever.
+A file can be given a lifetime when it is created: add `retention_days` (1 to 36500) to the [`POST /objects`](/docs/api-reference/operations/createobject/) body. The catalog row gets `expires_at` (now plus that many days), which the object endpoints return. Without `retention_days` the file is kept forever.
 
 Retention applies to **files only**, because a record that has been archived to Parquet cannot be removed.
 
@@ -13,9 +13,9 @@ The **cleanup job** deletes every file whose `expires_at` has passed: the bucket
 
 If `AUDIT_RETENTION_DAYS` is set, the same job also deletes old audit rows, see [Audit log](/docs/concepts/audit-log/).
 
-To delete a single object immediately, use `DELETE /objects/{id}` (admin token).
+To delete a single object immediately, use [`DELETE /objects/{id}`](/docs/api-reference/operations/deleteobject/) (admin token).
 
-See [Cleanup job](/docs/gateway/cleanup-job/) for how to run it.
+See [Cleanup job](/docs/gateway/cleanup-job/) for how to run it; the API call is [`POST /cleanup/run`](/docs/api-reference/operations/cleanuprun/).
 
 ## Example
 
@@ -29,7 +29,7 @@ curl -s -X POST "$GATEWAY/objects" -H "Authorization: Bearer $TOKEN" \
 
 The response carries `"expires_at": "2026-12-11T..."`. After that moment the file is still downloadable until the cleanup job runs; the job is what enforces the lifetime.
 
-```json title="POST /cleanup/run"
+```json title="POST /cleanup/run, 200 response"
 {"status": "ok", "expired": 3, "deleted": 3, "audit_deleted": 0, "errors": [], "more": false}
 ```
 

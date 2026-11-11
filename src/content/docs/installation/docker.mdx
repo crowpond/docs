@@ -174,7 +174,7 @@ Nothing in the containers runs on a timer. From the host's crontab:
 45 3 * * * cd /srv/crowpond && docker compose exec -T -u www-data gateway php bin/cleanup
 ```
 
-Or run a throw-away container with the same environment: `docker compose run --rm -T gateway php bin/archive`. Both exit non-zero on failure. You can also call `POST /archive/run` and `POST /cleanup/run` with an admin token from any scheduler. The cleanup job is only needed when files have a `retention_days` or `AUDIT_RETENTION_DAYS` is set; the console's `php artisan admin:prune-audit` needs its own schedule if you set the console's `AUDIT_RETENTION_DAYS`.
+Or run a throw-away container with the same environment: `docker compose run --rm -T gateway php bin/archive`. Both exit non-zero on failure. You can also call [`POST /archive/run`](/docs/api-reference/operations/runarchive/) and [`POST /cleanup/run`](/docs/api-reference/operations/cleanuprun/) with an admin token from any scheduler. The cleanup job is only needed when files have a `retention_days` or `AUDIT_RETENTION_DAYS` is set; the console's `php artisan admin:prune-audit` needs its own schedule if you set the console's `AUDIT_RETENTION_DAYS`.
 
 ## Reverse proxy
 
@@ -201,4 +201,4 @@ curl -s -X POST http://127.0.0.1:8080/objects \
   -d '{"source":"demo","owner":"me","payload":{"hello":"pond"}}'
 ```
 
-See the [API reference](/docs/api-reference/) for the exact request shapes.
+See [`POST /objects`](/docs/api-reference/operations/createobject/) in the API reference for the exact request shape.

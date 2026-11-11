@@ -46,7 +46,7 @@ A **file** (an image, a video, a Parquet file you made yourself) never passes th
 
 <ReadPath />
 
-`GET /tables/{table}/rows` takes filters, a time range and a cursor. The gateway reads the matching hot rows from PostgreSQL, finds the archive files that overlap the range, downloads the ones it does not have cached, checks each one's size and SHA-256 against the catalog, queries them with DuckDB and merges everything in `(created_at, object_id)` order. The caller sees one table; a digest mismatch is an error rather than silently wrong data.
+[`GET /tables/{table}/rows`](/docs/api-reference/operations/listrows/) takes filters, a time range and a cursor. The gateway reads the matching hot rows from PostgreSQL, finds the archive files that overlap the range, downloads the ones it does not have cached, checks each one's size and SHA-256 against the catalog, queries them with DuckDB and merges everything in `(created_at, object_id)` order. The caller sees one table; a digest mismatch is an error rather than silently wrong data.
 
 ## Labels and binding in one paragraph
 

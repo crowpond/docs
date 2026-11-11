@@ -32,14 +32,7 @@ Two policies are built in. They are defined in the gateway's code and cannot be 
 A label with the `NATO` policy implies NATO ownership of the data, and ADatP-4774 says open-domain data must not carry a NATO policy. Use `PUBLIC` for open data. `NATO` is built in because the standard defines it, for deployments that really do handle NATO-owned data, not as a convenient set of levels.
 </Aside>
 
-An admin can register other policies, with the admin console's **Label policies** page or through the API:
-
-| Request | Role | Purpose |
-| --- | --- | --- |
-| `GET /label-policies` | api | built-in and registered policies, with a `builtin` flag |
-| `GET /label-policies/{id}` | api | one policy |
-| `POST /label-policies` | admin | register a policy |
-| `DELETE /label-policies/{id}` | admin | delete a registered policy |
+An admin can register other policies, with the admin console's **Label policies** page or through the API: [`GET /label-policies`](/docs/api-reference/operations/listlabelpolicies/) and [`GET /label-policies/{id}`](/docs/api-reference/operations/getlabelpolicy/) (api role; each policy has a `builtin` flag), [`POST /label-policies`](/docs/api-reference/operations/createlabelpolicy/) and [`DELETE /label-policies/{id}`](/docs/api-reference/operations/deletelabelpolicy/) (admin role). A request to register one:
 
 ```json
 {

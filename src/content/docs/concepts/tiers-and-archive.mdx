@@ -28,7 +28,7 @@ The job takes every partition older than the table's hot window and, per label a
 
 </FileTree>
 
-The hot window is `HOT_DAYS` full past days besides today (default 7), and can be overridden per table with `POST /tables/{table}/archive-policy` (admin).
+The hot window is `HOT_DAYS` full past days besides today (default 7), and can be overridden per table with [`POST /tables/{table}/archive-policy`](/docs/api-reference/operations/setarchivepolicy/) (admin).
 
 Parquet is zstd-compressed and sorted by `(created_at, object_id)`. Catalog fields are prefixed `_` (`_object_id`, `_created_at`, `_owner`, `_source`, `_label_policy`, `_label_class`, `_digest`, `_schema_version`), followed by the table's own columns and `_extra`. The `generic` table has `_fingerprint`, `_fields` and `_payload` instead.
 
@@ -41,10 +41,10 @@ Every sibling `.bdo.xml` is the file's [detached binding](/docs/concepts/labels-
 Run it with:
 
 - `php bin/archive` (needs `ffi` enabled and `DUCKDB_LIB`),
-- `POST /archive/run[?table=]` with an admin token, or
+- [`POST /archive/run`](/docs/api-reference/operations/runarchive/) (optionally `?table=`) with an admin token, or
 - the admin console's Archive page.
 
-It needs a scheduler: cron, a scheduled container, or any caller of the endpoint. `GET /archive` shows status. The result of a run lists what was archived and what failed:
+It needs a scheduler: cron, a scheduled container, or any caller of the endpoint. [`GET /archive`](/docs/api-reference/operations/archivestatus/) shows status. The result of a run lists what was archived and what failed:
 
 ```json title="POST /archive/run"
 {

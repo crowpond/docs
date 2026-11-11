@@ -9,17 +9,17 @@ Nothing in the gateway or the console runs on a timer. Schedule these yourself (
 
 | Job | Command | Endpoint | When |
 | --- | --- | --- | --- |
-| Archive | `php bin/archive` | `POST /archive/run` | daily |
-| Cleanup | `php bin/cleanup` | `POST /cleanup/run` | daily, if you use file retention or `AUDIT_RETENTION_DAYS` |
+| Archive | `php bin/archive` | [`POST /archive/run`](/docs/api-reference/operations/runarchive/) | daily |
+| Cleanup | `php bin/cleanup` | [`POST /cleanup/run`](/docs/api-reference/operations/cleanuprun/) | daily, if you use file retention or `AUDIT_RETENTION_DAYS` |
 | Prune console audit | `php artisan admin:prune-audit` | | if you set the console's `AUDIT_RETENTION_DAYS` |
 
-The endpoints need an admin token. Check progress with `GET /archive` or the console's Archive page.
+The endpoints need an admin token. Check progress with [`GET /archive`](/docs/api-reference/operations/archivestatus/) or the console's Archive page.
 
 The installation guides show how to schedule them on [Docker](/docs/installation/docker/#scheduling-the-jobs), [Fly.io](/docs/installation/fly/#scheduled-jobs) and [Portainer](/docs/installation/portainer/#one-off-commands).
 
 ## Health checks
 
-- Gateway: `GET /healthz`.
+- Gateway: [`GET /healthz`](/docs/api-reference/operations/healthz/).
 - Admin console: `GET /up`.
 
 ## Logs

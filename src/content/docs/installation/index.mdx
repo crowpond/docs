@@ -25,7 +25,7 @@ Both images are built for amd64 and arm64. `latest` follows `main`; version tags
 - **A second database on the same server** (or another server), with its own user, for the admin console's accounts. The console never touches the gateway's database.
 - **An S3-compatible bucket** for files and the Parquet archive: AWS S3, Tigris, Cloudflare R2, MinIO and similar. Without one, file endpoints return 503 and nothing is archived. The gateway talks to a custom endpoint with path-style addressing.
 - **TLS in front of both containers.** They speak plain HTTP on port 8080: use a reverse proxy, a load balancer, or Fly's proxy.
-- **A scheduler** for the archive job and, if you use file retention or `AUDIT_RETENTION_DAYS`, the cleanup job. Nothing in crowpond runs on a timer. Cron, a scheduled container or an external caller of `POST /archive/run` all work.
+- **A scheduler** for the archive job and, if you use file retention or `AUDIT_RETENTION_DAYS`, the cleanup job. Nothing in crowpond runs on a timer. Cron, a scheduled container or an external caller of [`POST /archive/run`](/docs/api-reference/operations/runarchive/) all work.
 
 DuckDB, which the gateway uses to read and write Parquet, is already inside the gateway image (`libduckdb.so`, `DUCKDB_LIB` preset and `ffi.enable=1` in its PHP configuration). You only need to install it if you run the gateway from source.
 
@@ -62,7 +62,7 @@ The order matters, because the console needs a gateway token and its own databas
 
 2. **Create the bucket** and an access key that can read, write and delete in it.
 
-3. **Start the gateway** with `DATABASE_URL` and the bucket variables. On start it runs its migrations (`bin/migrate`, idempotent and advisory-locked), so there is nothing to run by hand. Check `GET /healthz`.
+3. **Start the gateway** with `DATABASE_URL` and the bucket variables. On start it runs its migrations (`bin/migrate`, idempotent and advisory-locked), so there is nothing to run by hand. Check [`GET /healthz`](/docs/api-reference/operations/healthz/).
 
 4. **Create the first admin token** inside the gateway container. It prints the secret once, as the last line of its output:
 
@@ -70,7 +70,7 @@ The order matters, because the console needs a gateway token and its own databas
    php bin/create-token console admin
    ```
 
-   Every later token can be issued from the console's Tokens page or with `POST /tokens`.
+   Every later token can be issued from the console's Tokens page or with [`POST /tokens`](/docs/api-reference/operations/createtoken/).
 
 5. **Start the admin console** with `APP_KEY`, `DB_URL`, `GATEWAY_URL` and `GATEWAY_ADMIN_TOKEN` (the token from step 4). Generate the key with `php artisan key:generate --show`.
 

@@ -5,9 +5,9 @@ description: The two kinds of object the gateway stores and how the catalog trac
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Everything ingested through `POST /objects` is an **object**. The `objects` table is the catalog, with one row per object: id (UUIDv7), owner, source, content type, label, kind, schema, storage location, tier and a SHA-256 digest of the canonical JSON or of the file bytes.
+Everything ingested through [`POST /objects`](/docs/api-reference/operations/createobject/) is an **object**. The `objects` table is the catalog, with one row per object: id (UUIDv7), owner, source, content type, label, kind, schema, storage location, tier and a SHA-256 digest of the canonical JSON or of the file bytes.
 
-Every request needs `Authorization: Bearer <token>`. The examples use `$GATEWAY` for the base URL and `$TOKEN` for an `api` or `admin` token.
+Every request needs `Authorization: Bearer <token>`. The examples use `$GATEWAY` for the base URL and `$TOKEN` for an `api` or `admin` token. They are trimmed; the [API reference](/docs/api-reference/operations/createobject/) has every field, status code and error.
 
 ## Records
 
@@ -38,7 +38,7 @@ curl -s -X POST "$GATEWAY/objects" \
 }
 ```
 
-`owner` and `source` are required (1 to 200 characters). `label` is optional and defaults to `PUBLIC` / `UNMARKED`; it must name a built-in or registered [label policy](/docs/concepts/labels-and-binding/#label-policies) and one of its classifications. Add `"schema": "weather_obs"` to validate against a registered schema and write to its table.
+`label` defaults to `PUBLIC` / `UNMARKED` and must name a built-in or registered [label policy](/docs/concepts/labels-and-binding/#label-policies). Add `"schema": "weather_obs"` to validate against a registered schema and write to its table. The other fields are in the [reference](/docs/api-reference/operations/createobject/).
 
 Records are immutable once archived. A record that is already archived cannot be deleted (409).
 
@@ -48,7 +48,7 @@ Files (images, video, Parquet and so on) never pass through the gateway:
 
 <Steps>
 
-1. **Describe the file.** `POST /objects` with a `file` instead of a `payload`: its name, size in bytes (1 byte to 5 GiB, one presigned PUT) and lower-case hex SHA-256.
+1. **Describe the file.** [`POST /objects`](/docs/api-reference/operations/createobject/) with a `file` instead of a `payload`: its name, size in bytes and lower-case hex SHA-256.
 
    ```sh
    curl -s -X POST "$GATEWAY/objects" \
@@ -59,7 +59,7 @@ Files (images, video, Parquet and so on) never pass through the gateway:
      }'
    ```
 
-   The response has `object_id`, `status: "pending"`, `expires_at`, and `upload_url`, `upload_method` (`PUT`), `upload_headers` and `upload_expires_in` (seconds; `UPLOAD_URL_TTL`, default 900).
+   The `201` response has `object_id`, `status: "pending"` and the presigned `upload_url` with the `upload_headers` to send. The URL lives for `UPLOAD_URL_TTL` seconds (default 900).
 
 2. **Upload the bytes** to the bucket, with the headers the response lists:
 
@@ -67,7 +67,7 @@ Files (images, video, Parquet and so on) never pass through the gateway:
    curl -X PUT "$UPLOAD_URL" -H "Content-Type: image/jpeg" --data-binary @ridge.jpg
    ```
 
-3. **Commit.** The gateway checks size and SHA-256. Only then does the file become downloadable.
+3. **Commit** ([`POST /objects/{id}/commit`](/docs/api-reference/operations/commitobject/)). The gateway checks size and SHA-256. Only then does the file become downloadable.
 
    ```sh
    curl -s -X POST "$GATEWAY/objects/$OBJECT_ID/commit" -H "Authorization: Bearer $TOKEN"
@@ -83,7 +83,7 @@ Files have no tiering: the catalog's `tier` is `null` and they stay in the bucke
 
 ## Reading
 
-`GET /objects/{id}` returns the catalog row and the payload (or a download URL for a committed file).
+[`GET /objects/{id}`](/docs/api-reference/operations/readobject/) returns the catalog row and the payload (or a download URL for a committed file).
 
 ```json title="GET /objects/{id} for a record (abridged)"
 {
@@ -93,19 +93,15 @@ Files have no tiering: the catalog's `tier` is `null` and they stay in the bucke
   "content_type": "application/json",
   "label": {"policy": "PUBLIC", "classification": "UNMARKED"},
   "kind": "record", "status": "committed", "tier": "hot",
-  "schema": null, "metadata": {"station": "q3"}, "expires_at": null,
+  "digest_sha256": "d2b8...c459", "size_bytes": null,
+  "schema": null, "schema_version": null, "metadata": {"station": "q3"}, "expires_at": null,
   "payload": {"wind_ms": 7.4, "temp_c": 3.1, "observed_at": "2026-11-11T10:15:00Z"}
 }
 ```
 
 Once the record is archived, `tier` is `archived`, the payload is read from the verified Parquet file, and an `archive` object names the file and its SHA-256.
 
-`GET /objects` lists catalog rows without payloads. Filters:
-
-- `source`, `owner`, `kind` (`record` or `file`), `schema`, `table`
-- `created_from` (inclusive) and `created_to` (exclusive)
-- `after` and `limit`: keyset pagination; pass the response's `next` as `after`
-- `metadata.<key>[.<op>]=<value>`: text comparison against the object's `metadata`. `op` is one of `eq ne in null prefix contains`, default `eq`. Unknown keys or operators give 422.
+[`GET /objects`](/docs/api-reference/operations/listobjects/) lists catalog rows without payloads. It filters on `source`, `owner`, `kind`, `schema`, `table`, a `created_from` / `created_to` range and `metadata.<key>[.<op>]=<value>` (a text comparison against the object's `metadata`); the [reference](/docs/api-reference/operations/listobjects/) lists them all.
 
 ```sh
 curl -s -G "$GATEWAY/objects" -H "Authorization: Bearer $TOKEN" \
@@ -113,13 +109,13 @@ curl -s -G "$GATEWAY/objects" -H "Authorization: Bearer $TOKEN" \
   --data-urlencode "metadata.filename.prefix=ridge" --data-urlencode "limit=50"
 ```
 
-The response is `{"items": [...], "next": "..."}`; `next` is `null` on the last page.
+The response is `{"items": [...], "next": "..."}`; pass `next` back as `after` until it is `null`.
 
 Metadata filtering only sees the live catalog row, not the payload, so it works the same whether the object is hot or archived.
 
 ## Deleting
 
-`DELETE /objects/{id}` (admin token) removes one object now: a file (bucket object and catalog row) or a record still in PostgreSQL. Bulk-table records have no catalog row and cannot be deleted individually.
+[`DELETE /objects/{id}`](/docs/api-reference/operations/deleteobject/) (admin token) removes one object now: a file (bucket object and catalog row) or a record still in PostgreSQL. Bulk-table records have no catalog row and cannot be deleted individually.
 
 <Aside type="note">
 A conflict (409) means the record has already been archived. Deletion is recorded in the [audit log](/docs/concepts/audit-log/) as `object.delete`.
