@@ -1,0 +1,25 @@
+---
+title: crowpond
+description: An open source datalake with one REST API in front of PostgreSQL and a Parquet archive.
+template: splash
+hero:
+  tagline: Generic ingest and retrieval of labelled, bound data objects. Live data in PostgreSQL, past data archived as Parquet, one REST API in front.
+  actions:
+    - text: Getting started
+      link: getting-started/
+      icon: right-arrow
+    - text: Concepts
+      link: concepts/objects/
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid>
+  <Card title="Gateway" icon="seti:json">
+    The product's core: a PHP API for ingesting and reading JSON records, files and high-rate streams, with an archive job and a retention job.
+  </Card>
+  <Card title="Admin console" icon="setting">
+    A web console that uses only the gateway's HTTP API: approve schema proposals, browse tables, run the archive, issue API tokens.
+  </Card>
+</CardGrid>

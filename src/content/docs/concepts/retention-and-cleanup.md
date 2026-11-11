@@ -1,0 +1,16 @@
+---
+title: Retention and cleanup
+description: Giving files a lifetime and deleting them when it ends.
+---
+
+A file can be given a lifetime when it is created: add `retention_days` (1 to 36500) to the `POST /objects` body. The catalog row gets `expires_at` (now plus that many days), returned by `POST /objects`, `GET /objects` and `GET /objects/{id}`. Without `retention_days` the file is kept forever.
+
+Retention applies to **files only**, because a record that has been archived to Parquet cannot be removed.
+
+The **cleanup job** deletes every file whose `expires_at` has passed: the bucket object first, then the catalog row, one file per transaction. A bucket failure leaves the row in place, and the next run retries it. It deletes at most 500 files per run; `more: true` in the result means run it again.
+
+If `AUDIT_RETENTION_DAYS` is set, the same job also deletes old audit rows, see [Audit log](/docs/concepts/audit-log/).
+
+To delete a single object immediately, use `DELETE /objects/{id}` (admin token).
+
+See [Cleanup job](/docs/gateway/cleanup-job/) for how to run it.
