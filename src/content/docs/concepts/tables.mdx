@@ -45,11 +45,13 @@ The `201` response lists the version and the columns that were created:
 {
   "name": "weather_obs", "version": 1, "table_name": "weather_obs",
   "columns": [{"field": "wind_ms", "column": "wind_ms", "pg_type": "double precision"}],
-  "auto_match": true, "catalog": "record"
+  "auto_match": false, "catalog": "record"
 }
 ```
 
-Registering the same name again adds a new version that can only add columns. Records written under an older version read the missing columns as `NULL`. A new version keeps the previous version's `auto_match` unless you set it.
+A schema registered by hand is **not** auto-routed (`auto_match: false`): records reach its table only when they name it, with the `schema` field of [`POST /objects`](/docs/api-reference/operations/createobject/). See [Auto-routing](#auto-routing).
+
+Registering the same name again adds a new version that can only add columns. Records written under an older version read the missing columns as `NULL`. A new version keeps the previous version's `auto_match`; there is no request field to change it. For an auto-routed schema, registering the new version also moves the rows that now fit out of `generic`: see [Moving rows out of generic](#moving-rows-out-of-generic).
 
 ### Proposals
 
@@ -64,6 +66,52 @@ When many records land in `generic` with similar keys, an admin runs the scan an
 </Steps>
 
 The admin console does the same on its Proposals page.
+
+## Auto-routing
+
+A payload sent without a schema name is routed to a typed table when it fits one that has **auto-routing** on: at least 80% overlap between the payload's top-level keys and the schema's properties (keys that cannot be column names are ignored), and the payload validates against the schema's latest version. The best-fitting table wins. Anything else goes to `generic`.
+
+- **Approving a proposal turns auto-routing on** for the new table. That is the only way it gets turned on.
+- **Registering a schema by hand does not.** A new table made with `POST /schemas` takes only records that name it. This is deliberate: creating a table must not silently capture payloads that nobody sent to it. If you want a hand-made schema to be routed automatically, create it from a proposal instead.
+- **A new version keeps the setting.** Registering another version of an auto-routed schema leaves it auto-routed, and a hand-made schema stays unrouted. Routing always uses the latest version, so a version that is too strict (for example a field typed `string` that is sometimes `null`) sends those records to `generic` until you register a version that accepts them.
+- **Bulk tables are never auto-routed.** They have no `generic` rows and are written with [`POST /tables/{table}/records`](/docs/api-reference/operations/createrecords/).
+
+The table page in the admin console shows whether a table is auto-routed.
+
+## Moving rows out of generic
+
+Records that did not fit when they arrived stay in `generic`. When a table can take them (a proposal was approved, or a new schema version accepts them), they can be moved into it. The move is permanent: the rows leave `generic`, and each object's catalog row now names the table and schema version. Digests, creation times and object ids do not change.
+
+Only rows that **fit the schema's latest version** move (the same test as [auto-routing](#auto-routing)). Only live rows are touched, since `generic` holds no archived data. A row the database rejects stays in `generic`; that is not an error. Every backfill is audited as `schema.backfill`.
+
+### Automatically
+
+- **Approving a proposal** moves every fitting row in the same request, as before.
+- **Registering a new version** of an auto-routed schema runs one bounded step in the same request: at most 5000 rows are moved, and the response gets a `backfill` object, `{"moved": 283, "more": false}`. If `more` is `true`, there are still fitting rows; run the backfill again.
+- Send `"backfill": false` with the new version to skip the automatic step (for example before a very large move you want to run at a quiet time).
+- No automatic backfill happens for a first registration, for a schema that is not auto-routed, or for a bulk table.
+
+### Manually
+
+[`POST /schemas/{name}/backfill`](/docs/api-reference/operations/backfillschema/) (admin) runs the same bounded step for the schema's latest version and returns `{"name", "version", "moved", "more"}`. Call it again while `more` is `true`.
+
+```sh title="Move rows until nothing more fits"
+while :; do
+  out=$(curl -s -X POST "$GATEWAY/schemas/ais_watch_static/backfill" -H "Authorization: Bearer $ADMIN_TOKEN")
+  echo "$out"
+  echo "$out" | grep -q '"more":true' || break
+done
+```
+
+It answers 404 for an unknown schema, and 409 for a bulk table and for a schema that is not auto-routed (a table nobody routes to should not collect unnamed payloads).
+
+In the **admin console**, the table page has a "Move matching rows from generic" button next to "New version" (typed, auto-routed tables only), which asks for confirmation and repeats until nothing more moves or a safety limit is reached. The "New version" page offers a "Skip backfill" checkbox, and shows how many rows moved with a "Move more" button while `more` is true.
+
+From the **command line**, `php bin/backfill <schema-name>` inside the container (or locally against `DATABASE_URL`) loops the same step until `more` is false. It writes the same `schema.backfill` audit rows, with method `CLI`.
+
+<Aside type="note">
+Running it twice is harmless: the second run finds nothing that fits and moves 0 rows.
+</Aside>
 
 ## Bulk tables
 
