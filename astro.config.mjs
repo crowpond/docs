@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import starlightOpenAPI, { openAPISidebarGroups } from 'starlight-openapi';
 
 // Served from https://crowpond.github.io/docs/ on GitHub Pages.
 // For a custom domain later: set `site` to it and `base` to '/'.
@@ -9,6 +10,10 @@ export default defineConfig({
   base: '/docs',
   integrations: [
     starlight({
+      // The API reference is generated from the gateway's OpenAPI description (see README, "API reference").
+      plugins: [
+        starlightOpenAPI([{ base: 'api-reference', label: 'API reference', schema: './openapi/gateway.json' }]),
+      ],
       title: 'crowpond',
       description: 'Documentation for crowpond, an open source datalake: gateway and admin console.',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/crowpond' }],
@@ -44,7 +49,7 @@ export default defineConfig({
           ],
         },
         { label: 'Operations', slug: 'operations' },
-        { label: 'API reference', slug: 'api-reference' },
+        ...openAPISidebarGroups,
       ],
     }),
   ],

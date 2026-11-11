@@ -26,6 +26,18 @@ Content is in `src/content/docs/` (Markdown/MDX); the sidebar is in `astro.confi
 
 ## API reference
 
-A placeholder page for now. It will be generated from the gateway's OpenAPI 3.1 description ([crowpond/gateway#5](https://github.com/crowpond/gateway/issues/5)), for example with `starlight-openapi`.
+The API reference pages under `/docs/api-reference/` are generated at build time by [`starlight-openapi`](https://github.com/HiDeoo/starlight-openapi) from `openapi/gateway.json`, a committed copy of the gateway's `openapi.json` (the same document the gateway serves at `GET /openapi.json`). Nothing in the reference is written by hand; fix the description in the gateway repository instead.
+
+The copy is pinned to one gateway commit in `openapi/spec.lock.json` (commit and sha256), so a build never depends on the network or on whatever is on `main`, and a spec change shows up as a reviewable diff in this repository.
+
+Refresh the spec after the gateway's API changed:
+
+```sh
+npm run fetch-spec            # re-download the pinned commit (rarely needed)
+npm run fetch-spec -- main    # move the pin to the gateway's current main (or give a commit hash)
+git diff openapi/             # review, then commit openapi/gateway.json and openapi/spec.lock.json
+```
+
+The gateway repository is private for now, so the download needs a token that can read it: `GITHUB_TOKEN` or `GH_TOKEN`, otherwise the script uses `gh auth token`. Without a token it tries the public raw URL, which works once the repository is public (and then needs a full commit hash). `npm run build` first runs `npm run check-spec`, which fails when `openapi/gateway.json` no longer matches the recorded sha256 (an accidental hand edit), so CI catches that too; it does not fetch anything, so CI needs no access to the gateway repository.
 
 GitHub Pages is not available on private repositories on the free plan. The deploy job runs only when the repository variable `DEPLOY_PAGES` is `true`; enable Pages (Settings, Pages, Source: GitHub Actions) and set the variable once the repository is public or the plan allows it.

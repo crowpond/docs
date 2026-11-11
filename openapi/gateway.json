@@ -1,0 +1,3554 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "crowpond gateway API",
+    "version": "0.1.0",
+    "summary": "Generic ingest and retrieval of labelled data objects.",
+    "description": "Live data in PostgreSQL, past data archived as Parquet, files in a bucket, one REST API in front.\n\n**Authentication.** Every operation except `/healthz` and `/openapi.json` needs `Authorization: Bearer <token>`. A token has the role `api` or `admin`. Operations marked `api` accept either role; operations marked `admin` need an admin token. Tokens are issued with `POST /tokens`. The role is given as the scope of the `bearerAuth` requirement.\n\n**Errors.** Failures are `{\"detail\": ...}`: a message string, or for malformed input (422) a list of `{type, loc, msg}`. Unknown paths give 404, and a known path with the wrong method 405, both as `{\"detail\": \"Not Found\"}` / `{\"detail\": \"Method Not Allowed\"}`. Authentication is checked before the body is validated. The format is not yet RFC 9457 Problem Details.\n\n**Pagination.** Lists use keyset cursors: the response's `next` is passed back as `after` (`_after` for table rows) until it is `null`. The audit log and object list are ordered by their time-ordered UUID; table rows by `(created_at, object_id)`. Tokens and proposals are returned whole.\n\n**Tracing.** Send a W3C `traceparent` request header to continue your trace. Every response carries a `traceparent` header (a new span of the same trace, or a new trace when the request had none or an invalid one).",
+    "license": {
+      "name": "Proprietary",
+      "identifier": "LicenseRef-crowpond-unreleased"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://gateway.example.com",
+      "description": "Replace with your gateway's base URL."
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health"
+    },
+    {
+      "name": "Objects"
+    },
+    {
+      "name": "Tables"
+    },
+    {
+      "name": "Schemas"
+    },
+    {
+      "name": "Proposals"
+    },
+    {
+      "name": "Archive"
+    },
+    {
+      "name": "Cleanup"
+    },
+    {
+      "name": "Tokens"
+    },
+    {
+      "name": "Audit"
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "healthz",
+        "summary": "Liveness and database check",
+        "tags": [
+          "Health"
+        ],
+        "description": "No authentication. Runs `SELECT 1`; a database failure gives 500.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The service and its database are up.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ]
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "openapi",
+        "summary": "This OpenAPI description",
+        "tags": [
+          "Health"
+        ],
+        "description": "No authentication, like `/healthz`: the document describes the API and contains nothing about any deployment. It is the `openapi.json` file of the gateway repository, served unchanged.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The OpenAPI 3.1 document.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ]
+      }
+    },
+    "/schemas": {
+      "post": {
+        "operationId": "registerSchema",
+        "summary": "Register a schema (or a new version)",
+        "tags": [
+          "Schemas"
+        ],
+        "description": "Table creation is manual: this and approving a proposal are the only ways a typed table comes to exist. Later versions may only add columns.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SchemaRegistration"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Registered. Creates the typed table for a first version.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaRegistered"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ]
+      }
+    },
+    "/objects": {
+      "get": {
+        "operationId": "listObjects",
+        "summary": "List catalog rows",
+        "tags": [
+          "Objects"
+        ],
+        "description": "Keyset pagination on `object_id` (UUIDv7, time-ordered): pass `next` as `after` until it is null.",
+        "parameters": [
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "Exact match.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "description": "Exact match.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "description": "Record or file.",
+            "schema": {
+              "enum": [
+                "record",
+                "file"
+              ]
+            }
+          },
+          {
+            "name": "schema",
+            "in": "query",
+            "required": false,
+            "description": "Schema name.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "table",
+            "in": "query",
+            "required": false,
+            "description": "Storage table.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "description": "`created_at` lower bound, inclusive. A time without an offset is UTC.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "created_to",
+            "in": "query",
+            "required": false,
+            "description": "`created_at` upper bound, exclusive.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "description": "Cursor: the previous page's `next`.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "metadata",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "description": "Metadata filters, written as separate parameters `metadata.<key>=<value>` or `metadata.<key>.<op>=<value>` (`op`: `eq` (default), `ne`, `in`, `null`, `prefix`, `contains`). Values are compared as text against the catalog row's `metadata`. Unknown operators give 422. Other unknown parameters are ignored.",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page, oldest first, without payloads.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createObject",
+        "summary": "Ingest a record or describe a file",
+        "tags": [
+          "Objects"
+        ],
+        "description": "Records are stored as-is (matched or validated against a schema). For a file: `PUT` the content to `upload_url`, then call `POST /objects/{id}/commit`. A single record can also go straight into a bulk table by naming it in `schema` (no catalog row is written then); use `POST /tables/{table}/records` for batches.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "A record is stored, or a file is registered as `pending` and an upload URL returned.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RecordCreated"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FileCreated"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoStorage"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ]
+      }
+    },
+    "/objects/{id}": {
+      "get": {
+        "operationId": "readObject",
+        "summary": "Fetch an object",
+        "tags": [
+          "Objects"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ObjectId"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The catalog row and, for a record, its payload (from either tier).",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteObject",
+        "summary": "Delete an object",
+        "tags": [
+          "Objects"
+        ],
+        "description": "Deletes a file (bucket object and catalog row) or a record still in PostgreSQL. A record already archived to Parquet gives 409.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ObjectId"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectDeleted"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/objects/{id}/commit": {
+      "post": {
+        "operationId": "commitObject",
+        "summary": "Finish a file upload",
+        "tags": [
+          "Objects"
+        ],
+        "description": "Checks the uploaded size and SHA-256 against what `POST /objects` declared. 409 when nothing was uploaded or it does not match.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ObjectId"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Committed (idempotent).",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileCommitted"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoStorage"
+          }
+        }
+      }
+    },
+    "/cleanup/run": {
+      "post": {
+        "operationId": "cleanupRun",
+        "summary": "Delete expired files",
+        "tags": [
+          "Cleanup"
+        ],
+        "description": "Deletes files past their `retention_days`, and audit rows past `AUDIT_RETENTION_DAYS`. A bounded batch per call: repeat while `more` is true.",
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sweep ran; `status` is `failed` when some deletions failed.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CleanupResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoStorage"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ]
+      }
+    },
+    "/tables": {
+      "get": {
+        "operationId": "listTables",
+        "summary": "Table inventory",
+        "tags": [
+          "Tables"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every table with row counts across both tiers, file totals and pending proposals.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Inventory"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ]
+      }
+    },
+    "/tables/{table}": {
+      "get": {
+        "operationId": "readTable",
+        "summary": "Table detail",
+        "tags": [
+          "Tables"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Table"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stats, columns, JSON Schema and schema versions.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/tables/{table}/rows": {
+      "get": {
+        "operationId": "listRows",
+        "summary": "Filtered rows of a typed table",
+        "tags": [
+          "Tables"
+        ],
+        "description": "Reads PostgreSQL and the verified Parquet archive as one snapshot. At most 31 archive files are opened per request, so a page can be short and still carry `next`: follow it until it is null. The `generic` table cannot be filtered by field (422); use `GET /objects`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Table"
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "description": "Column filters, as separate parameters: `<column>=<value>` or `<column>.<op>=<value>` (`op`: `eq ne gt gte lt lte in null prefix contains`, limited by column type), and `extra.<key>[.<op>]=<value>` for fields without a column (text comparison). Unknown columns and unknown parameters give 422.",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "_source",
+            "in": "query",
+            "required": false,
+            "description": "Catalog filter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "_owner",
+            "in": "query",
+            "required": false,
+            "description": "Catalog filter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "_id",
+            "in": "query",
+            "required": false,
+            "description": "One row. For a bulk table the id must be a UUIDv7, or give `_created_from` and `_created_to`.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "_created_from",
+            "in": "query",
+            "required": false,
+            "description": "`created_at` lower bound, inclusive.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "_created_to",
+            "in": "query",
+            "required": false,
+            "description": "`created_at` upper bound, exclusive.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "_select",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated columns to return.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "_order",
+            "in": "query",
+            "required": false,
+            "description": "Order by `(created_at, object_id)`.",
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "asc"
+            }
+          },
+          {
+            "name": "_after",
+            "in": "query",
+            "required": false,
+            "description": "Cursor: the previous page's `next` (an `object_id` is also accepted, but not for bulk tables).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "_limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size (clamped to 1..1000).",
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page across live and archived data.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RowPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          }
+        }
+      }
+    },
+    "/tables/{table}/records": {
+      "post": {
+        "operationId": "createRecords",
+        "summary": "Batch ingest into a bulk table",
+        "tags": [
+          "Tables"
+        ],
+        "description": "Also works for any typed table. 1 to 1000 records per call; each is validated against the schema, and the whole batch is rejected on the first failure.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Table"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "All records stored in one transaction.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchCreated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/tables/{table}/archive-policy": {
+      "post": {
+        "operationId": "setArchivePolicy",
+        "summary": "Set a table's hot window",
+        "tags": [
+          "Archive"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Table"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchivePolicyRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchivePolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/archive": {
+      "get": {
+        "operationId": "archiveStatus",
+        "summary": "Archive status",
+        "tags": [
+          "Archive"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-table tier counts and the ten most recent runs.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ]
+      }
+    },
+    "/archive/run": {
+      "post": {
+        "operationId": "runArchive",
+        "summary": "Run the archive job now",
+        "tags": [
+          "Archive"
+        ],
+        "description": "Moves whole past days older than the hot window from PostgreSQL to hourly Parquet files. Synchronous: the request returns when the run is done.",
+        "parameters": [
+          {
+            "name": "table",
+            "in": "query",
+            "required": false,
+            "description": "Only this table.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run finished (`status` `failed` lists errors) or was skipped because another run holds the lock.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoStorage"
+          }
+        }
+      }
+    },
+    "/proposals/scan": {
+      "post": {
+        "operationId": "scanProposals",
+        "summary": "Scan for schema proposals",
+        "tags": [
+          "Proposals"
+        ],
+        "description": "Clusters unmatched records in `generic` by field set and proposes schemas. Proposals are never applied automatically.",
+        "parameters": [
+          {
+            "name": "min_rows",
+            "in": "query",
+            "required": false,
+            "description": "Minimum cluster size (at least 1).",
+            "schema": {
+              "type": "integer",
+              "default": 100
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposal ids created and updated.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/proposals": {
+      "get": {
+        "operationId": "listProposals",
+        "summary": "List proposals",
+        "tags": [
+          "Proposals"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status.",
+            "schema": {
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All proposals, oldest first (not paginated).",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Proposal"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/proposals/{id}": {
+      "get": {
+        "operationId": "readProposal",
+        "summary": "Fetch a proposal",
+        "tags": [
+          "Proposals"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProposalId"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The proposal.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Proposal"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/proposals/{id}/approve": {
+      "post": {
+        "operationId": "approveProposal",
+        "summary": "Approve a proposal",
+        "tags": [
+          "Proposals"
+        ],
+        "description": "Registers the schema (optionally edited in the body), creates the table and moves matching rows, in one transaction.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProposalId"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Approved: the table exists and matching rows were moved out of `generic`.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Proposal"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/proposals/{id}/reject": {
+      "post": {
+        "operationId": "rejectProposal",
+        "summary": "Reject a proposal",
+        "tags": [
+          "Proposals"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProposalId"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rejected.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Proposal"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/tokens": {
+      "post": {
+        "operationId": "createToken",
+        "summary": "Issue a token",
+        "tags": [
+          "Tokens"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenCreateRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created. `secret` is shown only here.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenCreated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ]
+      },
+      "get": {
+        "operationId": "listTokens",
+        "summary": "List tokens",
+        "tags": [
+          "Tokens"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest first, never including secrets (not paginated).",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ]
+      }
+    },
+    "/tokens/{id}/revoke": {
+      "post": {
+        "operationId": "revokeToken",
+        "summary": "Revoke a token",
+        "tags": [
+          "Tokens"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TokenId"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked. Revoking an already revoked token succeeds.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/audit": {
+      "get": {
+        "operationId": "listAudit",
+        "summary": "Query the audit log",
+        "tags": [
+          "Audit"
+        ],
+        "description": "Keyset pagination on `audit_id`: oldest first by default, `order=desc` for newest first; pass `next` as `after`.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "`at` lower bound, inclusive.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "`at` upper bound, exclusive.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "token_id",
+            "in": "query",
+            "required": false,
+            "description": "The acting token.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "description": "e.g. `object.create`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "target_id",
+            "in": "query",
+            "required": false,
+            "description": "What the request was aimed at.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "trace_id",
+            "in": "query",
+            "required": false,
+            "description": "32-character lower-case hex W3C trace id.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "required": false,
+            "description": "Outcome.",
+            "schema": {
+              "enum": [
+                "ok",
+                "denied",
+                "failed"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "description": "Sort direction.",
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "asc"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "description": "Cursor: the previous page's `next`.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of audit rows.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A token issued by `POST /tokens` (or `bin/create-token`). The scope list on an operation names the role it needs: `api` (any valid token) or `admin`."
+      }
+    },
+    "headers": {
+      "traceparent": {
+        "description": "W3C Trace Context of this request: `00-<trace id>-<span id>-<flags>`. Same trace id as the request's `traceparent` when it was valid.",
+        "schema": {
+          "type": "string",
+          "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+        }
+      }
+    },
+    "parameters": {
+      "ObjectId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Object id.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "Table": {
+        "name": "table",
+        "in": "path",
+        "required": true,
+        "description": "Table name (`generic` or a typed table's `table_name`).",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ProposalId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Proposal id.",
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "TokenId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Token id.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Page size, 1 to 1000 (clamped); default 100.",
+        "schema": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "Traceparent": {
+        "name": "traceparent",
+        "in": "header",
+        "required": false,
+        "description": "W3C Trace Context to continue (`00-<32 hex>-<16 hex>-<2 hex>`, lower case, no all-zero ids). Invalid values are ignored and a new trace starts.",
+        "schema": {
+          "type": "string",
+          "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "No `Authorization: Bearer` header (`missing bearer token`).",
+        "headers": {
+          "traceparent": {
+            "$ref": "#/components/headers/traceparent"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Detail"
+            },
+            "example": {
+              "detail": "missing bearer token"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The token is unknown or revoked (`invalid token`), or the route needs the admin role (`admin token required`).",
+        "headers": {
+          "traceparent": {
+            "$ref": "#/components/headers/traceparent"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Detail"
+            },
+            "example": {
+              "detail": "admin token required"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "No such resource, or no such route.",
+        "headers": {
+          "traceparent": {
+            "$ref": "#/components/headers/traceparent"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Detail"
+            },
+            "example": {
+              "detail": "no such object"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "The resource is in a state that does not allow this.",
+        "headers": {
+          "traceparent": {
+            "$ref": "#/components/headers/traceparent"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Detail"
+            }
+          }
+        }
+      },
+      "Invalid": {
+        "description": "The request is invalid. `detail` is a message string for rule violations, or a list of `{type, loc, msg}` for malformed input.",
+        "headers": {
+          "traceparent": {
+            "$ref": "#/components/headers/traceparent"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Detail"
+                },
+                {
+                  "$ref": "#/components/schemas/ValidationDetail"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "Unexpected failure (`Internal Server Error`), or an archive file failed its size/digest check (`archive integrity check failed: ...`).",
+        "headers": {
+          "traceparent": {
+            "$ref": "#/components/headers/traceparent"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Detail"
+            }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "An archive file cannot be read from the bucket.",
+        "headers": {
+          "traceparent": {
+            "$ref": "#/components/headers/traceparent"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Detail"
+            }
+          }
+        }
+      },
+      "NoStorage": {
+        "description": "File storage is not configured (`BUCKET_NAME` unset).",
+        "headers": {
+          "traceparent": {
+            "$ref": "#/components/headers/traceparent"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Detail"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Label": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "type": "string",
+            "default": "PUBLIC",
+            "description": "STANAG 4774 originator policy. Only `PUBLIC` is accepted so far."
+          },
+          "classification": {
+            "type": "string",
+            "default": "UNMARKED",
+            "description": "Only `UNMARKED` is accepted so far."
+          }
+        },
+        "description": "STANAG 4774 originator confidentiality label. Any other policy/classification is rejected with 422."
+      },
+      "Detail": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          }
+        },
+        "description": "Error body for every failure except request validation. This is not yet RFC 9457 Problem Details.",
+        "required": [
+          "detail"
+        ]
+      },
+      "ValidationItem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "loc": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "description": "Where the problem is: `body`, `query` or `path`, then the field path."
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "loc",
+          "msg"
+        ]
+      },
+      "ValidationDetail": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationItem"
+            }
+          }
+        },
+        "description": "Body-, query- or path-parameter validation errors (422), in FastAPI's list format.",
+        "required": [
+          "detail"
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "SchemaRegistration": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Schema name; letters, digits and underscore (an SQL-safe identifier)."
+          },
+          "table_name": {
+            "type": "string",
+            "description": "Table the schema creates, in the `data` schema. Same identifier rules as `name`."
+          },
+          "json_schema": {
+            "type": "object",
+            "description": "JSON Schema 2020-12 object describing the payload; top-level properties become columns."
+          },
+          "catalog": {
+            "enum": [
+              "record",
+              "table"
+            ],
+            "default": "record",
+            "description": "`record`: one catalog row per record. `table`: a bulk table with no per-record catalog row; needs `owner` and `source`."
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Bulk tables only."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Bulk tables only."
+          },
+          "label": {
+            "$ref": "#/components/schemas/Label"
+          }
+        },
+        "required": [
+          "name",
+          "table_name",
+          "json_schema"
+        ]
+      },
+      "SchemaRegistered": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "table_name": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "column": {
+                  "type": "string"
+                },
+                "pg_type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "column",
+                "pg_type"
+              ]
+            }
+          },
+          "auto_match": {
+            "type": "boolean"
+          },
+          "catalog": {
+            "enum": [
+              "record",
+              "table"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "table_name",
+          "columns",
+          "auto_match",
+          "catalog"
+        ]
+      },
+      "FileDescriptor": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "size": {
+            "type": "integer",
+            "description": "Bytes; 1 to 5 GiB (a single presigned PUT)."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lower-case hex SHA-256 of the content; checked at commit."
+          }
+        },
+        "required": [
+          "name",
+          "size",
+          "sha256"
+        ]
+      },
+      "IngestRequest": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Required, except for a record sent to a bulk table with `schema`: then it may be left out, or must equal the table's fixed owner."
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Required, except for a record sent to a bulk table with `schema`."
+          },
+          "label": {
+            "$ref": "#/components/schemas/Label"
+          },
+          "content_type": {
+            "type": "string",
+            "description": "Default `application/json` for records, `application/octet-stream` for files."
+          },
+          "schema": {
+            "type": "string",
+            "description": "Name of a registered schema to validate the record against (records only). `schema_name` is accepted as an alias."
+          },
+          "payload": {
+            "description": "Any JSON value. Send exactly one of `payload` or `file`."
+          },
+          "file": {
+            "$ref": "#/components/schemas/FileDescriptor"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Free-form catalog metadata; filterable with `metadata.<key>` on `GET /objects`. For files the server adds `filename`."
+          },
+          "retention_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 36500,
+            "description": "Files only: the cleanup job deletes the file after this many days."
+          }
+        },
+        "description": "Send exactly one of `payload` (a record) or `file` (a file to upload)."
+      },
+      "RecordCreated": {
+        "type": "object",
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "const": "record"
+          },
+          "table": {
+            "type": "string"
+          },
+          "catalog": {
+            "enum": [
+              "record",
+              "none"
+            ]
+          },
+          "digest_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "object_id",
+          "kind",
+          "table",
+          "catalog",
+          "digest_sha256"
+        ]
+      },
+      "FileCreated": {
+        "type": "object",
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "const": "file"
+          },
+          "status": {
+            "const": "pending"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "upload_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Presigned URL; PUT the content here, then commit."
+          },
+          "upload_method": {
+            "const": "PUT"
+          },
+          "upload_headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Headers to send with the PUT."
+          },
+          "upload_expires_in": {
+            "type": "integer",
+            "description": "Seconds the upload URL stays valid."
+          },
+          "next": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "object_id",
+          "kind",
+          "status",
+          "expires_at",
+          "upload_url",
+          "upload_method",
+          "upload_headers",
+          "upload_expires_in",
+          "next"
+        ]
+      },
+      "FileCommitted": {
+        "type": "object",
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "const": "committed"
+          },
+          "digest_sha256": {
+            "type": "string",
+            "description": "Absent when the file was already committed."
+          }
+        },
+        "required": [
+          "object_id",
+          "status"
+        ]
+      },
+      "ObjectSummary": {
+        "type": "object",
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/Label"
+          },
+          "kind": {
+            "enum": [
+              "record",
+              "file"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`committed`, or `pending` for a file awaiting upload."
+          },
+          "tier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`archived` once a record moved to Parquet; otherwise live."
+          },
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "table": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Table the record is stored in; `generic` for unmatched records."
+          },
+          "size_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "digest_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "object_id",
+          "created_at",
+          "owner",
+          "source",
+          "content_type",
+          "label",
+          "kind",
+          "status",
+          "tier",
+          "schema",
+          "table",
+          "size_bytes",
+          "digest_sha256",
+          "expires_at"
+        ]
+      },
+      "ObjectList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectSummary"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `after` for the next page; null on the last page."
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ]
+      },
+      "ObjectDetail": {
+        "type": "object",
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/Label"
+          },
+          "kind": {
+            "enum": [
+              "record",
+              "file"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "tier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "digest_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_version": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "payload": {
+            "description": "Records only: the stored JSON payload, from PostgreSQL or the verified Parquet archive."
+          },
+          "download_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Committed files only: presigned GET URL."
+          },
+          "archive": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
+              }
+            },
+            "description": "Archived records only: the archive file the record was read from.",
+            "required": [
+              "file",
+              "sha256"
+            ]
+          }
+        },
+        "required": [
+          "object_id",
+          "created_at",
+          "owner",
+          "source",
+          "content_type",
+          "label",
+          "kind",
+          "status",
+          "tier",
+          "digest_sha256",
+          "size_bytes",
+          "schema",
+          "schema_version",
+          "metadata",
+          "expires_at"
+        ]
+      },
+      "ObjectDeleted": {
+        "type": "object",
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "enum": [
+              "record",
+              "file"
+            ]
+          },
+          "deleted": {
+            "const": true
+          }
+        },
+        "required": [
+          "object_id",
+          "kind",
+          "deleted"
+        ]
+      },
+      "CleanupResult": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "enum": [
+              "ok",
+              "failed"
+            ]
+          },
+          "expired": {
+            "type": "integer",
+            "description": "Expired files found this run."
+          },
+          "deleted": {
+            "type": "integer"
+          },
+          "audit_deleted": {
+            "type": "integer",
+            "description": "Audit rows purged by AUDIT_RETENTION_DAYS."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "more": {
+            "type": "boolean",
+            "description": "True when the per-run limit was reached; run again."
+          }
+        },
+        "required": [
+          "status",
+          "expired",
+          "deleted",
+          "audit_deleted",
+          "errors",
+          "more"
+        ]
+      },
+      "BatchRequest": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "description": "One row; keys are the table's schema fields."
+            }
+          }
+        },
+        "required": [
+          "records"
+        ]
+      },
+      "BatchCreated": {
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "object_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "table",
+          "count",
+          "object_ids"
+        ]
+      },
+      "ArchivePolicyRequest": {
+        "type": "object",
+        "properties": {
+          "hot_days": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 36500,
+            "description": "Full past UTC days kept in PostgreSQL besides today."
+          }
+        },
+        "required": [
+          "hot_days"
+        ]
+      },
+      "ArchivePolicy": {
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "hot_days": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "table",
+          "hot_days"
+        ]
+      },
+      "TableStats": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "description": "Live plus archived rows."
+          },
+          "hot_rows": {
+            "type": "integer"
+          },
+          "archived_rows": {
+            "type": "integer"
+          },
+          "archive_files": {
+            "type": "integer"
+          },
+          "oldest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "newest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "archived_through": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "hot_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Per-table override; null means the HOT_DAYS default."
+          }
+        }
+      },
+      "TableEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TableStats"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "table": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "generic",
+                  "typed"
+                ]
+              },
+              "schema": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "distinct_shapes": {
+                "type": "integer",
+                "description": "`generic` only."
+              },
+              "version": {
+                "type": "integer",
+                "description": "Typed tables only."
+              },
+              "auto_match": {
+                "type": "boolean"
+              },
+              "catalog": {
+                "enum": [
+                  "record",
+                  "table"
+                ]
+              },
+              "owner": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "label": {
+                "$ref": "#/components/schemas/Label"
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    },
+                    "column": {
+                      "type": "string"
+                    },
+                    "pg_type": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "json_schema": {
+                "type": "object"
+              }
+            },
+            "description": "Typed tables carry `version`, `auto_match`, `catalog`, `columns` and `json_schema`; bulk tables also `owner`, `source` and `label`.",
+            "required": [
+              "table",
+              "kind",
+              "schema"
+            ]
+          }
+        ]
+      },
+      "TableDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TableEntry"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "versions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "integer"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "created_at"
+                  ]
+                },
+                "description": "Typed tables only."
+              }
+            }
+          }
+        ]
+      },
+      "Inventory": {
+        "type": "object",
+        "properties": {
+          "tables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableEntry"
+            }
+          },
+          "files": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "bytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "bytes"
+            ]
+          },
+          "pending_proposals": {
+            "type": "integer"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tables",
+          "files",
+          "pending_proposals",
+          "note"
+        ]
+      },
+      "RowItem": {
+        "type": "object",
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/Label"
+          },
+          "digest_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null for bulk tables."
+          },
+          "schema_version": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "description": "The selected columns."
+          },
+          "extra": {
+            "type": "object",
+            "description": "Fields that have no column."
+          }
+        },
+        "required": [
+          "object_id",
+          "created_at",
+          "owner",
+          "source",
+          "label",
+          "digest_sha256",
+          "schema_version",
+          "data",
+          "extra"
+        ]
+      },
+      "RowPage": {
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RowItem"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque cursor; pass as `_after`. Present even on a short page when the per-request archive file cap was hit. Null on the last page."
+          }
+        },
+        "required": [
+          "table",
+          "items",
+          "next"
+        ]
+      },
+      "ArchiveRun": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "integer"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detail": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "run_id",
+          "started_at",
+          "finished_at",
+          "trigger",
+          "status",
+          "detail"
+        ]
+      },
+      "ArchiveStatus": {
+        "type": "object",
+        "properties": {
+          "default_hot_days": {
+            "type": "integer"
+          },
+          "tables": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/TableStats"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "table": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "table"
+                  ]
+                }
+              ]
+            }
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArchiveRun"
+            },
+            "description": "The ten most recent runs, newest first."
+          }
+        },
+        "required": [
+          "default_hot_days",
+          "tables",
+          "runs"
+        ]
+      },
+      "ArchiveResult": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "ok",
+                  "failed"
+                ]
+              },
+              "run_id": {
+                "type": "integer"
+              },
+              "archived": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "table": {
+                      "type": "string"
+                    },
+                    "day": {
+                      "type": "string",
+                      "format": "date"
+                    }
+                  },
+                  "additionalProperties": true,
+                  "required": [
+                    "table",
+                    "day"
+                  ]
+                }
+              },
+              "errors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "table": {
+                      "type": "string"
+                    },
+                    "day": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "table",
+                    "day",
+                    "error"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "status",
+              "run_id",
+              "archived",
+              "errors"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "skipped"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "description": "Another archive run holds the job lock.",
+            "required": [
+              "status",
+              "reason"
+            ]
+          }
+        ]
+      },
+      "ScanResult": {
+        "type": "object",
+        "properties": {
+          "created": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Proposal ids."
+          },
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "skipped": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "updated",
+          "skipped"
+        ]
+      },
+      "Proposal": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "cluster_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "table_name": {
+            "type": "string"
+          },
+          "json_schema": {
+            "type": "object"
+          },
+          "excluded": {
+            "description": "Fields left out of the proposed schema, with reasons."
+          },
+          "row_count": {
+            "type": "integer"
+          },
+          "samples": {
+            "description": "A few example payloads."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "decided_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema_version": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "moved_rows": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "proposal_id",
+          "status",
+          "cluster_fields",
+          "name",
+          "table_name",
+          "json_schema",
+          "excluded",
+          "row_count",
+          "samples",
+          "created_at",
+          "updated_at",
+          "decided_at",
+          "decided_by",
+          "note",
+          "schema_name",
+          "schema_version",
+          "moved_rows"
+        ]
+      },
+      "ApproveRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "table_name": {
+            "type": "string"
+          },
+          "json_schema": {
+            "type": "object"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "description": "Optional body. Overrides what the proposal suggested."
+      },
+      "RejectRequest": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string"
+          }
+        },
+        "description": "Optional body."
+      },
+      "TokenCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "role": {
+            "enum": [
+              "api",
+              "admin"
+            ]
+          },
+          "created_by": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Recorded as the creator; defaults to `admin`."
+          }
+        },
+        "required": [
+          "name",
+          "role"
+        ]
+      },
+      "Token": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "api",
+              "admin"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "token_id",
+          "name",
+          "role",
+          "created_at",
+          "created_by",
+          "last_used_at",
+          "revoked_at"
+        ]
+      },
+      "TokenCreated": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "api",
+              "admin"
+            ]
+          },
+          "secret": {
+            "type": "string",
+            "description": "The plaintext bearer token. Shown once, never again."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "token_id",
+          "name",
+          "role",
+          "secret",
+          "created_at",
+          "created_by"
+        ]
+      },
+      "TokenList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Token"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "AuditEntry": {
+        "type": "object",
+        "properties": {
+          "audit_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "trace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "span_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_span_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "token_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "method": {
+            "type": "string"
+          },
+          "route": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "action": {
+            "type": "string"
+          },
+          "target_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "description": "HTTP status."
+          },
+          "outcome": {
+            "enum": [
+              "ok",
+              "denied",
+              "failed"
+            ]
+          },
+          "detail": {
+            "type": "object",
+            "description": "Counts and names only; never bodies, payloads, URLs or secrets."
+          }
+        },
+        "required": [
+          "audit_id",
+          "at",
+          "method",
+          "action",
+          "status",
+          "outcome",
+          "detail"
+        ]
+      },
+      "AuditPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEntry"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Pass as `after`; continues in the same direction."
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ]
+      }
+    }
+  }
+}
