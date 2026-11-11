@@ -16,7 +16,7 @@ description: What the gateway does not do, and what to know before relying on it
 ## Data
 
 - **Records are immutable once archived.** Deleting an archived record would need a Parquet rewrite and is not built. [`DELETE /objects/{id}`](/docs/api-reference/operations/deleteobject/) gives 409.
-- **Do not put a bucket lifecycle rule on `archive/`.** It would delete archive files behind the catalog's back.
+- **Do not put a bucket lifecycle rule on `archive/`.** It would delete archive files behind the catalog's back. Use [archive retention](/docs/concepts/retention-and-cleanup/#archive-retention) instead.
 - **Record tables keep one catalog row per record forever.** Use a bulk table for high-rate streams. Bulk records have no per-record digest, metadata or label and cannot be deleted individually.
 - **Only `created_at` is indexed.** Give a time range when reading large tables.
 - **Reads of the archive are bounded:** at most 31 archive files are opened per request, so follow `next` until it is `null` even on a short page.

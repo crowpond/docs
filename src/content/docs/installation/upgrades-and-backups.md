@@ -38,7 +38,7 @@ Restore into an empty database with `pg_restore -d <database> <dump>`.
 
 Two cautions:
 
-- Do not set a bucket **lifecycle rule** on `archive/`: it would delete archive files behind the catalog's back. Expire files with `retention_days` and the cleanup job instead.
+- Do not set a bucket **lifecycle rule** on `archive/`: it would delete archive files behind the catalog's back. Expire files with `retention_days`, and archived data with `ARCHIVE_RETENTION_DAYS`, through the cleanup job instead. Mind that archive retention deletes data for good: back up first if you need to keep it.
 - Archived records exist only as Parquet in the bucket once their partition is dropped from PostgreSQL. A database restore from before an archive run therefore leaves archive files in the bucket that the restored catalog does not know about; a bucket restore without the database leaves the catalog pointing at missing files (reads of those days return 502).
 
 Verify a restore by reading a table that spans the archive boundary and checking the response has no 500 or 502.

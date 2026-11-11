@@ -33,7 +33,7 @@ The gateway needs at least 512 MB of memory; the archive job takes about 180 MB 
 ## Things to remember
 
 - Back up PostgreSQL and the bucket yourself; crowpond does not. See [Upgrades and backups](/docs/installation/upgrades-and-backups/).
-- Do not set a bucket lifecycle rule on `archive/`: it would delete archive files behind the catalog's back.
+- Do not set a bucket lifecycle rule on `archive/`: it would delete archive files behind the catalog's back. Use `ARCHIVE_RETENTION_DAYS` to expire them.
 - Revoked or lost tokens cannot be recovered; issue a new one.
 - A cache miss when reading the archive downloads a whole hourly file (a few MB). The cache is per machine and empty after a restart.
 - Give a time range when reading large tables: only `created_at` is indexed.

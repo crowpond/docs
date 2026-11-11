@@ -17,7 +17,7 @@ One row per audited request:
 | `token_id`, `token_name`, `role` | the calling token; null when no valid token was presented. Never the secret |
 | `method`, `route` | the matched route pattern (`/objects/{id}`), never the raw path |
 | `action` | stable name of the operation |
-| `target_type`, `target_id` | what it acted on: `object`, `table`, `token`, `proposal` or `schema`. Null for runs and scans |
+| `target_type`, `target_id` | what it acted on: `object`, `table`, `token`, `proposal`, `schema` or `archive_file`. Null for runs and scans |
 | `status`, `outcome` | HTTP status; `ok`, `denied` (401/403) or `failed` (any other 4xx/5xx) |
 | `detail` | small jsonb of counts and names only |
 
@@ -27,7 +27,7 @@ Never stored: request or response bodies, payloads, metadata, query strings, bea
 
 Every state-changing request, every denied request (401/403) on a route that has an action, and, with `AUDIT_READS=on`, successful and failed reads too. `GET /healthz` and unmatched routes are never audited.
 
-Actions: `object.create`, `object.commit`, `object.delete`, `records.create` (one row per batch), `schema.register`, `proposal.scan`, `proposal.approve`, `proposal.reject`, `archive.policy`, `archive.run`, `cleanup.run`, `token.create`, `token.revoke`, `label_policy.create`, `label_policy.delete`, `audit.purge`. Reads: `object.list`, `object.read`, `table.list`, `table.read`, `table.rows`, `archive.status`, `proposal.list`, `proposal.read`, `token.list`, `label_policy.list`, `label_policy.read`, `audit.list`.
+Actions: `object.create`, `object.commit`, `object.delete`, `records.create` (one row per batch), `schema.register`, `proposal.scan`, `proposal.approve`, `proposal.reject`, `archive.policy`, `archive.run`, `cleanup.run`, `token.create`, `token.revoke`, `label_policy.create`, `label_policy.delete`, `audit.purge`, `archive.expire` (one per archive file deleted by the cleanup job, method `JOB`). Reads: `object.list`, `object.read`, `table.list`, `table.read`, `table.rows`, `archive.status`, `proposal.list`, `proposal.read`, `token.list`, `label_policy.list`, `label_policy.read`, `audit.list`.
 
 ## Consistency
 

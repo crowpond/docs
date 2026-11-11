@@ -581,11 +581,11 @@
     "/cleanup/run": {
       "post": {
         "operationId": "cleanupRun",
-        "summary": "Delete expired files",
+        "summary": "Delete expired files and archive files",
         "tags": [
           "Cleanup"
         ],
-        "description": "Deletes files past their `retention_days`, and audit rows past `AUDIT_RETENTION_DAYS`. A bounded batch per call: repeat while `more` is true.",
+        "description": "Deletes files past their `retention_days`, archive files whose newest record is older than the table's archive retention limit (`archive_retention_days`, else `ARCHIVE_RETENTION_DAYS`; no limit = nothing is deleted), and audit rows past `AUDIT_RETENTION_DAYS`. A bounded batch per call: repeat while `more` is true. With `dry_run=true` nothing is deleted and the archive part reports what it would remove.",
         "security": [
           {
             "bearerAuth": [
@@ -620,9 +620,22 @@
           },
           "503": {
             "$ref": "#/components/responses/NoStorage"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
           }
         },
         "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Delete nothing; report what would be removed."
+          },
           {
             "$ref": "#/components/parameters/Traceparent"
           }
@@ -964,7 +977,7 @@
     "/tables/{table}/archive-policy": {
       "post": {
         "operationId": "setArchivePolicy",
-        "summary": "Set a table's hot window",
+        "summary": "Set a table's hot window and archive retention",
         "tags": [
           "Archive"
         ],
@@ -1024,7 +1037,8 @@
           "500": {
             "$ref": "#/components/responses/ServerError"
           }
-        }
+        },
+        "description": "Give `hot_days`, `archive_retention_days` or both; only the fields given change. The response echoes them."
       }
     },
     "/archive": {
@@ -2857,6 +2871,41 @@
           "more": {
             "type": "boolean",
             "description": "True when the per-run limit was reached; run again."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "True when nothing was deleted (`?dry_run=true`)."
+          },
+          "archive_expired": {
+            "type": "integer",
+            "description": "Archive files past their table's retention limit found this run."
+          },
+          "archive_deleted": {
+            "type": "integer",
+            "description": "Archive files deleted (Parquet file, binding and registry row, plus the catalog rows of regular tables)."
+          },
+          "archive_rows_deleted": {
+            "type": "integer",
+            "description": "Records those archive files held."
+          },
+          "archive_tables": {
+            "type": "object",
+            "description": "Per table, the archive files and records removed (or, in a dry run, that would be).",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "files": {
+                  "type": "integer"
+                },
+                "rows": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "files",
+                "rows"
+              ]
+            }
           }
         },
         "required": [
@@ -2865,7 +2914,12 @@
           "deleted",
           "audit_deleted",
           "errors",
-          "more"
+          "more",
+          "dry_run",
+          "archive_expired",
+          "archive_deleted",
+          "archive_rows_deleted",
+          "archive_tables"
         ]
       },
       "BatchRequest": {
@@ -2916,11 +2970,18 @@
             "minimum": 0,
             "maximum": 36500,
             "description": "Full past UTC days kept in PostgreSQL besides today."
+          },
+          "archive_retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 36500,
+            "description": "The cleanup job deletes an archive file once its newest record is older than this many days (measured from `created_at`). `null` removes the table's own limit, so the gateway-wide `ARCHIVE_RETENTION_DAYS` default applies (unset = keep forever)."
           }
         },
-        "required": [
-          "hot_days"
-        ]
+        "minProperties": 1
       },
       "ArchivePolicy": {
         "type": "object",
@@ -2930,12 +2991,18 @@
           },
           "hot_days": {
             "type": "integer"
+          },
+          "archive_retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
-          "table",
-          "hot_days"
-        ]
+          "table"
+        ],
+        "description": "The fields that were set."
       },
       "TableStats": {
         "type": "object",
@@ -2980,6 +3047,13 @@
               "null"
             ],
             "description": "Per-table override; null means the HOT_DAYS default."
+          },
+          "archive_retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Per-table limit on the age of archived files; null means the `ARCHIVE_RETENTION_DAYS` default (unset = keep forever)."
           }
         }
       },
@@ -3284,12 +3358,20 @@
               "$ref": "#/components/schemas/ArchiveRun"
             },
             "description": "The ten most recent runs, newest first."
+          },
+          "default_archive_retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "`ARCHIVE_RETENTION_DAYS`; null = archived files are kept forever unless a table sets its own limit."
           }
         },
         "required": [
           "default_hot_days",
           "tables",
-          "runs"
+          "runs",
+          "default_archive_retention_days"
         ]
       },
       "ArchiveResult": {

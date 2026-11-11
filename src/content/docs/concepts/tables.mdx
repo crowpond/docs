@@ -7,7 +7,7 @@ import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
 ## Typed tables
 
-A typed table has one column per top-level property of its JSON Schema, plus an `extra jsonb` column for fields without a column. The `generic` table holds everything that matches nothing else.
+A typed table has one column per top-level property of its JSON Schema, plus an `extra jsonb` column for fields without a column. A property typed `["number", "null"]` (one type plus `"null"`) gets a nullable column of that type, not a union. The `generic` table holds everything that matches nothing else.
 
 Tables are created only by an admin, never automatically and never from unvalidated payload keys:
 
@@ -49,7 +49,7 @@ The `201` response lists the version and the columns that were created:
 }
 ```
 
-Registering the same name again adds a new version that can only add columns. Records written under an older version read the missing columns as `NULL`.
+Registering the same name again adds a new version that can only add columns. Records written under an older version read the missing columns as `NULL`. A new version keeps the previous version's `auto_match` unless you set it.
 
 ### Proposals
 

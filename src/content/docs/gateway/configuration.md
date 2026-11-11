@@ -12,6 +12,7 @@ The gateway is configured through environment variables.
 | `DUCKDB_LIB` | Path of `libduckdb.so`; needed to read or write the archive |
 | `UPLOAD_URL_TTL` | Presigned URL lifetime in seconds (default 900) |
 | `HOT_DAYS` | Default hot window in days (default 7) |
+| `ARCHIVE_RETENTION_DAYS` | Delete archived files older than this many days in the cleanup job (unset: keep forever). Per-table override with `archive_retention_days`, see [Retention and cleanup](/docs/concepts/retention-and-cleanup/#archive-retention). A value that is not a positive whole number is a startup error |
 | `ARCHIVE_CACHE_MB`, `ARCHIVE_CACHE_DIR` | Local archive cache (default 256 MB, system temp dir); `0` turns the cache off |
 | `ARCHIVE_WORK_DIR` | Scratch space for archive exports (default system temp dir) |
 | `AUDIT_READS` | `on` also audits successful GET requests (default off); denied reads are always audited |
@@ -23,10 +24,11 @@ Secrets: `DATABASE_URL` and the bucket credentials.
 
 Bearer tokens. Every token is a row in the `tokens` table, issued through [`POST /tokens`](/docs/api-reference/operations/createtoken/) and stored as a SHA-256 hash, never as plaintext. Two roles exist: `api` (ingest and read) and `admin` (everything, including issuing tokens, running jobs and deleting).
 
-Bootstrap the very first admin token with `bin/create-token <name> admin`, run once inside the container or locally against `DATABASE_URL`. Every later token can be issued from the admin console's Tokens page or with [`POST /tokens`](/docs/api-reference/operations/createtoken/).
+Bootstrap the very first admin token with `bin/create-token <name> admin`, run once inside the container or locally against `DATABASE_URL`. If an admin token is lost and none is at hand, `bin/revoke-token <token_id>` revokes a token directly. Every later token can be issued from the admin console's Tokens page or with [`POST /tokens`](/docs/api-reference/operations/createtoken/).
 
 - The `secret` in the `POST /tokens` response is the plaintext token, shown once and never again. Store it then, or issue a new token.
 - Revoking is permanent ([`POST /tokens/{id}/revoke`](/docs/api-reference/operations/revoketoken/)). Revoking an already-revoked token succeeds and does nothing.
+- `bin/create-token` and `bin/revoke-token` are audited like the API calls (`token.create`, `token.revoke`), with method `CLI` and `detail.via` naming the script.
 - A successful request bumps the token's `last_used_at`, at most once a minute.
 
 ## Errors

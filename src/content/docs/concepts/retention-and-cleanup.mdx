@@ -7,11 +7,26 @@ import { Aside } from '@astrojs/starlight/components';
 
 A file can be given a lifetime when it is created: add `retention_days` (1 to 36500) to the [`POST /objects`](/docs/api-reference/operations/createobject/) body. The catalog row gets `expires_at` (now plus that many days), which the object endpoints return. Without `retention_days` the file is kept forever.
 
-Retention applies to **files only**, because a record that has been archived to Parquet cannot be removed.
+Individual records cannot be given a lifetime. Records age out in two steps instead: they move from PostgreSQL into the Parquet archive (see [Tiers and archive](/docs/concepts/tiers-and-archive/)), and the archived files can then be deleted by an **archive retention** limit, described below.
 
 The **cleanup job** deletes every file whose `expires_at` has passed: the bucket object first, then the catalog row, one file per transaction. A bucket failure leaves the row in place, and the next run retries it. It deletes at most 500 files per run; `more: true` in the result means run it again.
 
 If `AUDIT_RETENTION_DAYS` is set, the same job also deletes old audit rows, see [Audit log](/docs/concepts/audit-log/).
+
+## Archive retention
+
+The same job deletes archived Parquet files that have grown too old. Set a gateway-wide default with `ARCHIVE_RETENTION_DAYS` (unset means keep forever) and override it per table with `archive_retention_days` in [`POST /tables/{table}/archive-policy`](/docs/api-reference/operations/setarchivepolicy/): 1 to 36500 days, or `null` to fall back to the default. A table cannot opt out of a gateway-wide default; to keep one table longer, give it a larger number.
+
+- The limit is measured from each record's `created_at`. An hourly file is deleted only when every record in it, and the end of its hour, is older than the limit, and always whole: files are never rewritten.
+- It applies to **archived files only**, not to the hot tier. Set it longer than `hot_days`, otherwise old hot rows are archived and then deleted right away.
+- Deleted data disappears from reads and counts. `archived_through` does not move back.
+- Per file, the registry row, the catalog rows that point at it, the binding and the Parquet file go together, in one transaction. Any failure rolls that file back and the next run retries it.
+- Each deleted file is audited as `archive.expire` (with the table, day, hour and row counts), and the cleanup run reports `archive_expired`, `archive_deleted`, `archive_rows_deleted` and `archive_tables` (files and rows per table).
+- The same 500-file limit applies per run, so `more: true` can also mean archive files remain.
+
+### Dry run
+
+To see what a run would remove, call [`POST /cleanup/run`](/docs/api-reference/operations/cleanuprun/) with `?dry_run=true`, or run `php bin/cleanup --dry-run`. Nothing is deleted (files, archive files or audit rows) and the result has `"dry_run": true`. Check it before lowering a limit.
 
 To delete a single object immediately, use [`DELETE /objects/{id}`](/docs/api-reference/operations/deleteobject/) (admin token).
 
@@ -30,9 +45,15 @@ curl -s -X POST "$GATEWAY/objects" -H "Authorization: Bearer $TOKEN" \
 The response carries `"expires_at": "2026-12-11T..."`. After that moment the file is still downloadable until the cleanup job runs; the job is what enforces the lifetime.
 
 ```json title="POST /cleanup/run, 200 response"
-{"status": "ok", "expired": 3, "deleted": 3, "audit_deleted": 0, "errors": [], "more": false}
+{
+  "status": "ok", "dry_run": false,
+  "expired": 3, "deleted": 3, "audit_deleted": 0,
+  "archive_expired": 24, "archive_deleted": 24, "archive_rows_deleted": 86400,
+  "archive_tables": {"weather_obs": {"files": 24, "rows": 86400}},
+  "errors": [], "more": false
+}
 ```
 
 <Aside type="caution">
-Do not use a bucket lifecycle rule instead. It would remove objects behind the catalog's back, and for `archive/` it would break reads. Retention through the cleanup job keeps the catalog and the bucket consistent.
+Do not use a bucket lifecycle rule instead, on files or on `archive/`. It would remove objects behind the catalog's back and break reads. The archive retention limit is the catalog-aware replacement: it deletes the Parquet file, its binding and the catalog rows together. A lifecycle rule on `archive/` is still wrong.
 </Aside>

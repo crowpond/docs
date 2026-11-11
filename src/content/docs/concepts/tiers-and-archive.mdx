@@ -28,7 +28,7 @@ The job takes every partition older than the table's hot window and, per label a
 
 </FileTree>
 
-The hot window is `HOT_DAYS` full past days besides today (default 7), and can be overridden per table with [`POST /tables/{table}/archive-policy`](/docs/api-reference/operations/setarchivepolicy/) (admin).
+The hot window is `HOT_DAYS` full past days besides today (default 7), and can be overridden per table with [`POST /tables/{table}/archive-policy`](/docs/api-reference/operations/setarchivepolicy/) (admin). The same endpoint sets how long archived files are kept.
 
 Parquet is zstd-compressed and sorted by `(created_at, object_id)`. Catalog fields are prefixed `_` (`_object_id`, `_created_at`, `_owner`, `_source`, `_label_policy`, `_label_class`, `_digest`, `_schema_version`), followed by the table's own columns and `_extra`. The `generic` table has `_fingerprint`, `_fields` and `_payload` instead.
 
@@ -65,5 +65,5 @@ An archive file is downloaded, checked against its registered size and SHA-256, 
 ## Limits
 
 - Deleting an archived record would need a Parquet rewrite and is not built.
-- A bucket lifecycle rule would delete archive files behind the catalog's back. Do not set one on `archive/`.
+- Archived files can expire, see [archive retention](/docs/concepts/retention-and-cleanup/#archive-retention). A bucket lifecycle rule would delete archive files behind the catalog's back. Do not set one on `archive/`; the archive retention limit is the catalog-aware way.
 - Record tables keep one catalog row per record forever. Use a bulk table for high-rate streams.
