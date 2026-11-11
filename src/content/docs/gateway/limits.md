@@ -6,7 +6,7 @@ description: What the gateway does not do, and what to know before relying on it
 ## Security
 
 - **Tokens** are stored as SHA-256 hashes. The plaintext is shown once at creation. There are two roles, `api` and `admin`; there is no per-table or per-label scope.
-- **The label is metadata only.** Only `PUBLIC` / `UNMARKED` is accepted, and nothing enforces access by label.
+- **The label is metadata only.** Labels must name a built-in (`PUBLIC`, `NATO`) or registered policy and one of its classifications, and nothing enforces access by label. Only policy and classification are modelled, not categories, privacy marks or releasability.
 - **Not signed.** Bindings carry a digest but no `ds:Signature`. The archive binding has the structure of one that was validated against the ADatP-4778 XSD in another tool, but the gateway's own output has not been validated.
 - **Logs and audit** never contain request bodies, payloads, query strings, bearer tokens or presigned URLs, but a `detail` message can quote a value a database rejected. Treat logs as sensitive.
 - **Append-only audit** is enforced by the application only; grant the database role no `UPDATE` on `audit_log` to enforce it in the database too. Tamper detection (hash chaining) is not built.

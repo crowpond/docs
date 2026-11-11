@@ -42,6 +42,10 @@
       "name": "Tokens"
     },
     {
+      "name": "Label policies",
+      "description": "Registry of STANAG 4774 label policies. PUBLIC and NATO are built in; admins register others."
+    },
+    {
       "name": "Audit"
     }
   ],
@@ -1760,6 +1764,236 @@
           }
         }
       }
+    },
+    "/label-policies": {
+      "get": {
+        "operationId": "listLabelPolicies",
+        "summary": "List label policies",
+        "description": "Built-in (`PUBLIC`, `NATO`) and registered policies. Not paginated.",
+        "tags": [
+          "Label policies"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Built-ins first, then registered policies by creation time.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelPolicyList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createLabelPolicy",
+        "summary": "Register a label policy",
+        "description": "Identifier and classifications are stored uppercase. A built-in identifier cannot be reused (409). Only policy and classification are modelled, not categories, privacy marks or releasability.",
+        "tags": [
+          "Label policies"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelPolicyCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Invalid"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/label-policies/{id}": {
+      "get": {
+        "operationId": "getLabelPolicy",
+        "summary": "Read a label policy",
+        "tags": [
+          "Label policies"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "api"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Label policy identifier (case-insensitive).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The policy.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteLabelPolicy",
+        "summary": "Delete a registered label policy",
+        "description": "Only while nothing refers to it (objects, bulk tables, archive files); otherwise 409. Built-in policies cannot be deleted (403).",
+        "tags": [
+          "Label policies"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+              "admin"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Label policy identifier (case-insensitive).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Traceparent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted; the removed policy.",
+            "headers": {
+              "traceparent": {
+                "$ref": "#/components/headers/traceparent"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1984,15 +2218,15 @@
           "policy": {
             "type": "string",
             "default": "PUBLIC",
-            "description": "STANAG 4774 originator policy. Only `PUBLIC` is accepted so far."
+            "description": "STANAG 4774 originator policy identifier: a built-in (`PUBLIC`, `NATO`) or a registered policy, matched case-insensitively and stored uppercase. A `NATO` label implies NATO ownership and must not be used for open data."
           },
           "classification": {
             "type": "string",
             "default": "UNMARKED",
-            "description": "Only `UNMARKED` is accepted so far."
+            "description": "A classification defined by the policy (see `GET /label-policies`), matched case-insensitively and stored uppercase."
           }
         },
-        "description": "STANAG 4774 originator confidentiality label. Any other policy/classification is rejected with 422."
+        "description": "STANAG 4774 originator confidentiality label. An unknown policy, or a classification the policy does not define, is rejected with 422."
       },
       "Detail": {
         "type": "object",
@@ -3547,6 +3781,101 @@
         "required": [
           "items",
           "next"
+        ]
+      },
+      "LabelPolicy": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "type": "string"
+          },
+          "uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "classifications": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered lowest to highest."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "builtin": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Null for built-in policies."
+          }
+        },
+        "required": [
+          "policy",
+          "uri",
+          "classifications",
+          "description",
+          "builtin",
+          "created_at"
+        ]
+      },
+      "LabelPolicyList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabelPolicy"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "LabelPolicyCreateRequest": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Letters, digits, single spaces and `. _ -`; stored uppercase."
+          },
+          "uri": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Optional absolute URI of the policy, e.g. `urn:oid:...`. Omitted from the binding when absent."
+          },
+          "classifications": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Ordered lowest to highest; same character rules as `policy`."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "policy",
+          "classifications"
         ]
       }
     }

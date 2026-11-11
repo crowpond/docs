@@ -9,15 +9,54 @@ Every object carries a confidentiality label, expressed per **STANAG 4774** (con
 
 ## Labels
 
-Only the `PUBLIC` policy with classification `UNMARKED` is accepted. Anything else is rejected, at ingest and again before archiving. The label is metadata only: nothing enforces access by label.
+A label names a **policy** and one **classification** defined by that policy. The gateway checks it against its label policy registry at ingest, when a bulk table is registered, and again before archiving. An unknown policy, or a classification the policy does not define, gives `422`. The label is metadata only: nothing enforces access by label.
 
-A label is optional in a request and defaults to the only accepted value:
+A label is optional in a request and defaults to `PUBLIC` / `UNMARKED`:
 
 ```json
 {"label": {"policy": "PUBLIC", "classification": "UNMARKED"}}
 ```
 
-Any other policy or classification gives `422`. The `PUBLIC` policy has the identifier `urn:oid:1.3.6.1.4.1.31778.12.2.1`. crowpond never uses a NATO policy as originator label, because that would imply NATO ownership of the data.
+Policy and classification are matched case-insensitively (as ADatP-4774 says) and stored in their canonical uppercase form, so `{"policy": "public", "classification": "unmarked"}` is stored as `PUBLIC` / `UNMARKED`.
+
+### Label policies
+
+Two policies are built in. They are defined in the gateway's code and cannot be edited or deleted:
+
+| Policy | URI | Classifications (lowest to highest) |
+| --- | --- | --- |
+| `PUBLIC` | `urn:oid:1.3.6.1.4.1.31778.12.2.1` | `UNMARKED` |
+| `NATO` | `urn:oid:1.3.26.1.3.1` | `UNCLASSIFIED`, `RESTRICTED`, `CONFIDENTIAL`, `SECRET`, `TOP SECRET` |
+
+<Aside type="caution" title="Do not use NATO labels for open data">
+A label with the `NATO` policy implies NATO ownership of the data, and ADatP-4774 says open-domain data must not carry a NATO policy. Use `PUBLIC` for open data. `NATO` is built in because the standard defines it, for deployments that really do handle NATO-owned data, not as a convenient set of levels.
+</Aside>
+
+An admin can register other policies, with the admin console's **Label policies** page or through the API:
+
+| Request | Role | Purpose |
+| --- | --- | --- |
+| `GET /label-policies` | api | built-in and registered policies, with a `builtin` flag |
+| `GET /label-policies/{id}` | api | one policy |
+| `POST /label-policies` | admin | register a policy |
+| `DELETE /label-policies/{id}` | admin | delete a registered policy |
+
+```json
+{
+  "policy": "ACME",
+  "uri": "urn:example:acme",
+  "classifications": ["OPEN", "INTERNAL", "RESTRICTED"],
+  "description": "Acme Corp internal data"
+}
+```
+
+- `policy` and every classification are 1 to 64 characters: letters, digits, single spaces and `. _ -`. They are stored in uppercase. A policy cannot reuse the identifier `PUBLIC` or `NATO` (`409`), or one that is already registered (`409`).
+- `classifications` is an ordered list, lowest to highest, of 1 to 50 distinct values.
+- `uri` is optional. When a policy has none, the `URI` attribute is left out of the binding (it is optional in ADatP-4774).
+- A registered policy cannot be edited. Delete it and register it again, which is only possible while nothing uses it: deleting a policy that objects, bulk tables or archive files still carry gives `409`. Deleting a built-in policy gives `403`.
+- Only the policy and classification are modelled. Categories, privacy marks and releasability are not.
+
+Registering and deleting policies is recorded in the [audit log](/docs/concepts/audit-log/) as `label_policy.create` and `label_policy.delete`.
 
 ## Binding
 
@@ -53,7 +92,7 @@ This is the detached binding the archive job writes next to `part-0.parquet`:
 </mb:BindingInformation>
 ```
 
-The highlighted lines are the label and the data reference with its digest. The `ar:` attributes belong to crowpond and are not part of the standard. The binding profile for Parquet is crowpond's own; the standard does not define one. A reader that wants to trust a file recomputes its SHA-256 and compares it with `ar:sha256`; the gateway does this on every read of an archive file.
+The highlighted lines are the label and the data reference with its digest. The `URI` attribute of `PolicyIdentifier` is the policy's own URI, and is omitted for a registered policy that has none; policy and classification are XML-escaped. The `ar:` attributes belong to crowpond and are not part of the standard. The binding profile for Parquet is crowpond's own; the standard does not define one. A reader that wants to trust a file recomputes its SHA-256 and compares it with `ar:sha256`; the gateway does this on every read of an archive file.
 
 The gateway's archive bindings have not been validated against the ADatP-4778 XSD. They are not signed: they carry a digest but no `ds:Signature`.
 

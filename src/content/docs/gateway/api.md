@@ -20,6 +20,8 @@ The full description is an OpenAPI 3.1 document, rendered in the [API reference]
 | `POST /proposals/scan`, `GET /proposals[/{id}]`, `POST /proposals/{id}/approve\|reject` | admin | schema proposals |
 | `GET /archive`, `POST /archive/run`, `POST /tables/{table}/archive-policy` | admin | archive status, run, hot window |
 | `POST /tokens`, `GET /tokens`, `POST /tokens/{id}/revoke` | admin | issue, list, revoke API tokens |
+| `GET /label-policies[/{id}]` | api | built-in and registered [label policies](/docs/concepts/labels-and-binding/#label-policies) |
+| `POST /label-policies`, `DELETE /label-policies/{id}` | admin | register, delete a label policy |
 | `GET /audit` | admin | the [audit log](/docs/concepts/audit-log/) |
 
 ## Behaviour common to all endpoints

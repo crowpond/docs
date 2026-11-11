@@ -50,7 +50,7 @@ A **file** (an image, a video, a Parquet file you made yourself) never passes th
 
 ## Labels and binding in one paragraph
 
-Each object carries an originator confidentiality label (only `PUBLIC` / `UNMARKED` is accepted so far). In the catalog the label sits in columns on the object's row. In the archive the label is on the **file**, not on each record, in a detached binding: a `.bdo.xml` file next to each Parquet file that references it by URI and carries the label and a local-use digest. Responses embed the label in the body. The label is metadata; nothing yet enforces access by label. Details: [Labels and binding](/docs/concepts/labels-and-binding/).
+Each object carries an originator confidentiality label (`PUBLIC` / `UNMARKED` by default; the built-in `PUBLIC` and `NATO` policies and any policies an admin registers are accepted). In the catalog the label sits in columns on the object's row. In the archive the label is on the **file**, not on each record, in a detached binding: a `.bdo.xml` file next to each Parquet file that references it by URI and carries the label and a local-use digest. Responses embed the label in the body. The label is metadata; nothing yet enforces access by label. Details: [Labels and binding](/docs/concepts/labels-and-binding/).
 
 ## Where the admin console fits
 

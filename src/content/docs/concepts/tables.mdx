@@ -67,7 +67,7 @@ The admin console does the same on its Proposals page.
 
 ## Bulk tables
 
-Bulk tables are for high-rate streams (for example vessel positions). Register a schema with `catalog: "table"` to get one. Owner, source and label are fixed for the whole table, and no catalog row is written per record. `POST /tables/{table}/records` ingests up to 1,000 records per call, all or nothing.
+Bulk tables are for high-rate streams (for example vessel positions). Register a schema with `catalog: "table"` to get one. Owner, source and label are fixed for the whole table (the label must name a built-in or registered [label policy](/docs/concepts/labels-and-binding/#label-policies); the default is `PUBLIC` / `UNMARKED`), and no catalog row is written per record. `POST /tables/{table}/records` ingests up to 1,000 records per call, all or nothing.
 
 Bulk records have no per-record digest, metadata or label, and cannot be deleted individually. They are read with `GET /tables/{table}/rows`, not `/objects`.
 

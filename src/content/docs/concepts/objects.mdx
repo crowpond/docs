@@ -38,7 +38,7 @@ curl -s -X POST "$GATEWAY/objects" \
 }
 ```
 
-`owner` and `source` are required (1 to 200 characters). `label` is optional and defaults to `PUBLIC` / `UNMARKED`. Add `"schema": "weather_obs"` to validate against a registered schema and write to its table.
+`owner` and `source` are required (1 to 200 characters). `label` is optional and defaults to `PUBLIC` / `UNMARKED`; it must name a built-in or registered [label policy](/docs/concepts/labels-and-binding/#label-policies) and one of its classifications. Add `"schema": "weather_obs"` to validate against a registered schema and write to its table.
 
 Records are immutable once archived. A record that is already archived cannot be deleted (409).
 
