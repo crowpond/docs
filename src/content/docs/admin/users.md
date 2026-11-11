@@ -24,7 +24,7 @@ It prompts for name, email and password, and marks the email as verified immedia
 
 The console's **Tokens** page (`/tokens`) issues and revokes the gateway's per-client bearer tokens. Pick a name and a role (`api` or `admin`); the gateway returns the plaintext secret once, so copy it immediately. Revoking is immediate and permanent; the row stays with `revoked_at` set, so the list keeps a history. `created_by` is set to the logged-in user's email.
 
-The console's own `GATEWAY_ADMIN_TOKEN` can be one of these issued tokens. Since that would let the console revoke the token it authenticates with, switching to one is a deliberate, manual step.
+The console's own `GATEWAY_ADMIN_TOKEN` is one of these tokens. Revoking it from the console would lock the console out.
 
 ## Why passkeys pin Symfony versions
 
