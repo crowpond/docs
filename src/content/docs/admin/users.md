@@ -30,6 +30,10 @@ The console's own `GATEWAY_ADMIN_TOKEN` is one of these tokens. Revoking it from
 
 The console's **Label policies** page (`/label-policies`) lists the gateway's built-in (`PUBLIC`, `NATO`) and registered [label policies](/docs/concepts/labels-and-binding/#label-policies), registers a new one (identifier, optional URI, classifications one per line from lowest to highest, optional description) and deletes a registered policy the gateway reports as unused. The bulk-table form on **Register a schema** offers the registered policies and their classifications for the table's label. A `NATO` label implies NATO ownership and must not be used for open data.
 
+## Downloading files
+
+For an object that is a file, the object page shows the file name (when the metadata has one), content type, size and SHA-256, with a **Download** button. The button opens a short-lived link that the gateway issues for each read, and the browser downloads straight from the file store: the file does not pass through the console. If the link has expired, press "Refresh link". A file that is still pending upload, or expired or deleted, has no download. The console never stores the link: the request log bar and the audit table keep only the part before the `?`.
+
 ## Why passkeys pin Symfony versions
 
 Fortify's passkey support depends on `laravel/passkeys`, which pulls in Symfony components whose newest releases need PHP 8.4, while the console runs on PHP 8.3. `composer.json` pins `symfony/property-access`, `symfony/property-info`, `symfony/serializer`, `symfony/string` and `symfony/type-info` to PHP 8.3-compatible releases. If the app moves to PHP 8.4, the pins can go.
