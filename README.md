@@ -27,3 +27,5 @@ Content is in `src/content/docs/` (Markdown/MDX); the sidebar is in `astro.confi
 ## API reference
 
 A placeholder page for now. It will be generated from the gateway's OpenAPI 3.1 description ([crowpond/gateway#5](https://github.com/crowpond/gateway/issues/5)), for example with `starlight-openapi`.
+
+GitHub Pages is not available on private repositories on the free plan. The deploy job runs only when the repository variable `DEPLOY_PAGES` is `true`; enable Pages (Settings, Pages, Source: GitHub Actions) and set the variable once the repository is public or the plan allows it.

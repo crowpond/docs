@@ -25,7 +25,8 @@ jobs:
           path: dist
 
   deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # Set the repository variable DEPLOY_PAGES=true once GitHub Pages is enabled (needs a public repo or a paid plan).
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_PAGES == 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:
