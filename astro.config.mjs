@@ -8,6 +8,8 @@ import starlightOpenAPI, { openAPISidebarGroups } from 'starlight-openapi';
 export default defineConfig({
   site: 'https://crowpond.github.io',
   base: '/docs',
+  // The old Getting started page was folded into the installation overview.
+  redirects: { '/getting-started': '/docs/installation/' },
   integrations: [
     starlight({
       // The API reference is generated from the gateway's OpenAPI description (see README, "API reference").
@@ -22,6 +24,7 @@ export default defineConfig({
         alt: 'crowpond',
       },
       favicon: '/favicon.svg',
+      components: { Hero: './src/components/Hero.astro' },
       customCss: ['./src/styles/custom.css'],
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/crowpond' },
@@ -32,7 +35,6 @@ export default defineConfig({
         {
           label: 'Start here',
           items: [
-            { slug: 'getting-started' },
             { slug: 'concepts/overview', badge: { text: 'New', variant: 'tip' } },
           ],
         },

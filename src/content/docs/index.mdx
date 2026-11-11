@@ -5,9 +5,6 @@ template: splash
 hero:
   title: A lake you can read to the bottom.
   tagline: Live data in PostgreSQL. Past days in Parquet. One API in front of both. crowpond is an open source datalake for labelled, bound data objects.
-  image:
-    file: ../../assets/hero-dusk.svg
-    alt: A crow on a rock in still water at dusk, with mountains reflected below.
   actions:
     - text: What is crowpond?
       link: /docs/concepts/overview/
@@ -24,7 +21,7 @@ hero:
 import { Card, CardGrid, LinkCard, Badge } from '@astrojs/starlight/components';
 import Architecture from '../../components/diagrams/Architecture.astro';
 
-<CardGrid stagger>
+<CardGrid>
   <Card title="Gateway" icon="seti:json">
     A PHP API for ingesting and reading JSON records, files and high-rate streams. It routes records to typed tables, archives old days to Parquet and serves reads across both tiers. <Badge text="ghcr.io/crowpond/gateway" variant="note" />
   </Card>

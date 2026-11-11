@@ -1,0 +1,45 @@
+---
+// Landing-page hero: the full-bleed "Dusk" illustration with its headline baked in.
+// The real title, tagline and buttons stay in the DOM for accessibility. On narrow screens the baked-in
+// text is hidden and the same title and tagline are shown as regular text below the picture.
+const PAGE_TITLE_ID = '_top';
+import { LinkButton } from '@astrojs/starlight/components';
+import body from '../assets/hero-dusk-body.html?raw';
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline, actions = [] } = data.hero || {};
+---
+<div class="crow-hero">
+  <svg viewBox="0 0 1600 900" role="img" aria-label="A crow on a rock in still water at dusk, with mountains reflected in the water." set:html={body} />
+  <div class="copy">
+    <h1 id={PAGE_TITLE_ID} data-page-title set:html={title} />
+    {tagline && <p class="tagline" set:html={tagline} />}
+  </div>
+  {actions.length > 0 && (
+    <div class="actions">
+      {actions.map(({ attrs: { class: className, ...attrs } = {}, icon, link: href, text, variant }) => (
+        <LinkButton {href} {variant} icon={icon?.name} class:list={[className]} {...attrs}>
+          {text}
+          {icon?.html && <Fragment set:html={icon.html} />}
+        </LinkButton>
+      ))}
+    </div>
+  )}
+</div>
+
+<style>
+  .crow-hero { display: grid; gap: 1.25rem; justify-items: center; }
+  svg { display: block; width: 100%; height: auto; border-radius: 0.75rem; }
+  .copy { text-align: center; max-width: 36rem; }
+  h1 { font-size: var(--sl-text-4xl); line-height: var(--sl-line-height-headings); color: var(--sl-color-white); }
+  .tagline { margin-top: 0.75rem; color: var(--sl-color-gray-2); }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-content: center; }
+  /* The baked-in text is only used when it is big enough to read. */
+  @media (min-width: 60rem) {
+    .copy { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    svg :global(.baked) { display: inline; }
+  }
+  @media (max-width: 59.999rem) {
+    svg :global(.baked) { display: none; }
+  }
+</style>
