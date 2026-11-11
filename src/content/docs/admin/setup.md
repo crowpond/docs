@@ -11,7 +11,7 @@ It is PHP 8.3 with Laravel 13, the official Livewire starter kit (Fortify, Flux 
 
 - It talks **only to the gateway's HTTP API**, with an admin token, through one class (`app/Services/Gateway/GatewayClient.php`). It never touches the gateway's database, so anything the console does, `curl` can do too.
 - Its **own database** holds only accounts, password-reset tokens, passkeys and its audit table. It should be a separate database and user, even if it shares a Postgres server with the gateway. Sessions are an encrypted cookie, not a database table.
-- **Pages**: overview with scan, proposals (detail, edit, approve, reject), tables (columns, schema, versions, filtered rows), register a schema (record or bulk table), objects, archive (per-table hot days, run now, recent runs), API tokens, audit, a static API reference at `/api-docs`, and account settings.
+- **Pages**: overview with scan, proposals (detail, edit, approve, reject), tables (columns, schema, versions, filtered rows), register a schema (record or bulk table), objects, archive (per-table hot days, run now, recent runs), API tokens, audit, a Documentation link in the sidebar, and account settings.
 - A **request log bar** at the bottom of every page lists every call the console made to the gateway in this session: method, path, status, timing, bodies and the `traceparent` ids. It is per-session, capped at 30 entries, and never shows the admin token or a download link.
 - Every gateway call carries a `traceparent` header: one trace id per incoming admin request and a fresh span id per call. The gateway logs the console's span as `parent_span_id`.
 
@@ -22,7 +22,7 @@ It is PHP 8.3 with Laravel 13, the official Livewire starter kit (Fortify, Flux 
 | `APP_KEY` (secret) | `php artisan key:generate --show` |
 | `DB_URL` (secret) | The console's own Postgres connection string, e.g. `postgres://crowpond_admin:<password>@db-host:5432/crowpond_admin`. Create a separate database and user manually: `CREATE DATABASE crowpond_admin; CREATE USER crowpond_admin WITH PASSWORD '...'; GRANT ALL ON DATABASE crowpond_admin TO crowpond_admin;` |
 | `GATEWAY_URL` | Base URL the console uses to reach the gateway |
-| `GATEWAY_PUBLIC_URL` | Base URL shown in `/api-docs` examples; only set it if it differs from `GATEWAY_URL` |
+| `DOCS_URL` | Where the sidebar's Documentation link points; default `https://crowpond.github.io/docs/` |
 | `GATEWAY_ADMIN_TOKEN` (secret) | An admin token for the gateway |
 | `AUDIT_RETENTION_DAYS` | Days `admin:prune-audit` keeps audit rows; unset or 0 keeps them forever |
 | `GATEWAY_TIMEOUT`, `GATEWAY_LONG_TIMEOUT` | Seconds; the long one is for "run archive now" (default 900) |
