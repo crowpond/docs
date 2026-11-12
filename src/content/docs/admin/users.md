@@ -24,6 +24,16 @@ It prompts for name, email and password, and marks the email as verified immedia
 
 The console's **Tokens** page (`/tokens`) issues and revokes the gateway's per-client bearer tokens. Pick a name and a role (`api` or `admin`); the gateway returns the plaintext secret once, so copy it immediately. Revoking is immediate and permanent; the row stays with `revoked_at` set, so the list keeps a history. `created_by` is set to the logged-in user's email.
 
+### Restricting an `api` token
+
+For an `api` token the form has three restriction fields, each with a **No restriction** toggle and a multi-value input: **Write owners**, **Read owners** and **Read labels** (as `POLICY/CLASS` patterns, `*` as wildcard, for example `ais-*` or `PUBLIC/*`). Type a value and press Enter to add it. The fields are not shown for an `admin` token, which is never restricted.
+
+- Toggle on (the default): no restriction, the token behaves as before.
+- Toggle off with entries: only values matching one of the patterns are allowed.
+- Toggle off with **zero entries**: **nothing is allowed** in that direction. The form shows a warning, because it is easy to do by accident: a token with an empty write list cannot write, and one with an empty read list cannot read.
+
+Restrictions are set when the token is created; issue a new token to change them. See [Token access restrictions](/docs/concepts/access-control/) for the matching rules and examples.
+
 The console's own `GATEWAY_ADMIN_TOKEN` is one of these tokens. Revoking it from the console would lock the console out.
 
 ## Label policies
