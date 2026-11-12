@@ -26,6 +26,7 @@ Bearer tokens. Every token is a row in the `tokens` table, issued through [`POST
 
 Bootstrap the very first admin token with `bin/create-token <name> admin`, run once inside the container or locally against `DATABASE_URL`. If an admin token is lost and none is at hand, `bin/revoke-token <token_id>` revokes a token directly. Every later token can be issued from the admin console's Tokens page or with [`POST /tokens`](/docs/api-reference/operations/createtoken/).
 
+- An `api` token can be [restricted](/docs/concepts/access-control/) to certain owners and labels with `write_owners`, `read_owners` and `read_labels` (patterns with `*`; omitted means unrestricted, `[]` means nothing allowed). Admin tokens are never restricted. Create one with `POST /tokens`, or with repeatable flags: `bin/create-token <name> api --write-owner ais-norway --write-owner ais-sweden --read-owner 'ais-*' --read-label 'PUBLIC/*'`.
 - The `secret` in the `POST /tokens` response is the plaintext token, shown once and never again. Store it then, or issue a new token.
 - Revoking is permanent ([`POST /tokens/{id}/revoke`](/docs/api-reference/operations/revoketoken/)). Revoking an already-revoked token succeeds and does nothing.
 - `bin/create-token` and `bin/revoke-token` are audited like the API calls (`token.create`, `token.revoke`), with method `CLI` and `detail.via` naming the script.

@@ -56,6 +56,7 @@ export default defineConfig({
             { slug: 'concepts/tiers-and-archive' },
             { slug: 'concepts/retention-and-cleanup' },
             { slug: 'concepts/labels-and-binding' },
+            { slug: 'concepts/access-control' },
             { slug: 'concepts/audit-log' },
             { slug: 'concepts/logging-and-tracing' },
           ],
