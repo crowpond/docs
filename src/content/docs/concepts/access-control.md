@@ -85,17 +85,18 @@ The partner sees only records owned by `ais-norway` **and** labelled under `PUBL
 | Write an object or record with a disallowed `owner` | `403` |
 | Write to a [bulk table](/docs/concepts/tables/) whose fixed owner is not in `write_owners` | `403`, even if the caller leaves `owner` out: the table's owner is what is checked |
 | [`GET /objects`](/docs/api-reference/operations/listobjects/), `GET /tables/{table}/rows` (live and archive tiers) | Unreadable records are **silently left out**. Pagination stays correct: pages are filled from the readable records only |
-| Read, commit or delete a single object the token cannot read | `404`. Existence is not revealed |
-| A bulk table whose owner or label the token cannot read | `404`, as if the table did not exist |
-| Row counts and statistics in `GET /tables` | Shown only for tables the token can see in full; others are left out |
+| Read a single object the token cannot read | `404`, the same as for an id that does not exist. Existence is not revealed |
+| Commit an object (or upload its file) whose owner is not in `write_owners` | `403`. These are write operations: they depend on `write_owners`, not on read access |
+| A bulk table whose owner or label the token cannot read | `404` on its rows, as if the table did not exist |
+| Row counts and statistics in `GET /tables` | The table is still listed, but its counts and dates (`rows`, `hot_rows`, `archived_rows`, `archive_files`, `oldest`, `newest`, `archived_through`) are `null` unless the token can see the table in full |
 
 ## Details that can catch you out
 
-- **Commit and delete need read access too.** A token that may write an owner but not read it can create an object and upload its file, but gets `404` when it commits or deletes it. For a write-only token, check how your producer's flow ends before relying on it. If the producer must commit, allow it to read its own owner.
+- **A write-only token works end to end.** A token that may write an owner but not read it can create an object, upload its file and commit it. It then gets `404` if it tries to read the object back, and its lists come back empty. Deleting objects is admin-only and unaffected by these lists.
 - **Filtering is by owner and label, not by who wrote.** A restriction decides what a token can see; it does not track which token created a record.
-- **Counts that leak.** A table the token cannot fully see shows no row counts, because a count over the whole table would reveal how much data is hidden. A token that can see only part of a table cannot see that table's statistics.
+- **Counts that leak.** A table the token cannot fully see shows no row counts or dates, because a count over the whole table would reveal how much data is hidden. A token that can see only part of a table cannot see that table's statistics. The `files` count and size are limited to the files the token can see.
 - **A bulk table has one owner and one label.** It is either visible to a token or not; there is no partial view.
-- **Case and spelling matter.** Patterns are matched against the stored owner as written. `Ais-*` does not match `ais-norway`. Label policy and classification are stored in uppercase, so write label patterns in uppercase.
+- **Case matters for owners, not for labels.** Owner patterns are matched against the stored owner exactly as written: `Ais-*` does not match `ais-norway`. Label patterns are converted to uppercase when the token is created, to match how label policy and classification are stored.
 - **Restrictions are fixed at creation.** To change them, issue a new token and [revoke](/docs/gateway/configuration/#authentication) the old one.
 - **Not a substitute for TLS or secret handling.** A restricted token is still a bearer secret.
 
