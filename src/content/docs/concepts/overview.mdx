@@ -50,7 +50,7 @@ A **file** (an image, a video, a Parquet file you made yourself) never passes th
 
 ## Labels and binding in one paragraph
 
-Each object carries an originator confidentiality label (`PUBLIC` / `UNMARKED` by default; the built-in `PUBLIC` and `NATO` policies and any policies an admin registers are accepted). In the catalog the label sits in columns on the object's row. In the archive the label is on the **file**, not on each record, in a detached binding: a `.bdo.xml` file next to each Parquet file that references it by URI and carries the label and a local-use digest. Responses embed the label in the body. The label is metadata; nothing yet enforces access by label. Details: [Labels and binding](/docs/concepts/labels-and-binding/).
+Each object carries an originator confidentiality label (`PUBLIC` / `UNMARKED` by default; the built-in `PUBLIC` and `NATO` policies and any policies an admin registers are accepted). In the catalog the label sits in columns on the object's row. In the archive the label is on the **file**, not on each record, in a detached binding: a `.bdo.xml` file next to each Parquet file that references it by URI and carries the label and a local-use digest. Responses embed the label in the body. The label is metadata; an `api` token can be [restricted](/docs/concepts/access-control/) to read only certain labels. Details: [Labels and binding](/docs/concepts/labels-and-binding/).
 
 ## Where the admin console fits
 
@@ -66,7 +66,7 @@ The console shows every call it makes to the gateway in a log bar at the bottom 
 - **Not a message broker.** Producers push, consumers pull. There is no subscription or fan-out.
 - **No automatic schemas.** Tables are created by an admin, never by payload keys.
 - **No updates, and no deleting of archived records.** Deleting an archived record would need a Parquet rewrite and is not built. Files can be deleted, and expire.
-- **No access control by label yet.** Labels travel with the data; tokens have two roles (`api` and `admin`), and that is all that is enforced.
+- **Access control is coarse.** Tokens have two roles (`api` and `admin`); `api` tokens can additionally be [restricted](/docs/concepts/access-control/) by owner and label. There are no users, groups or per-table grants.
 - **No signatures yet.** Bindings carry a digest but no `ds:Signature`.
 - **No database or bucket included.** You provide PostgreSQL and the S3-compatible bucket, and their backups.
 

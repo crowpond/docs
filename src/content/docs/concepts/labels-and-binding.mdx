@@ -9,7 +9,7 @@ Every object carries a confidentiality label, expressed per **STANAG 4774** (con
 
 ## Labels
 
-A label names a **policy** and one **classification** defined by that policy. The gateway checks it against its label policy registry at ingest, when a bulk table is registered, and again before archiving. An unknown policy, or a classification the policy does not define, gives `422`. The label is metadata only: nothing enforces access by label.
+A label names a **policy** and one **classification** defined by that policy. The gateway checks it against its label policy registry at ingest, when a bulk table is registered, and again before archiving. An unknown policy, or a classification the policy does not define, gives `422`. The label itself is metadata; access by label is enforced only for [restricted tokens](/docs/concepts/access-control/), through their `read_labels` list.
 
 A label is optional in a request and defaults to `PUBLIC` / `UNMARKED`:
 
